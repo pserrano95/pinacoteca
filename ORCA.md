@@ -15,8 +15,8 @@ section is the exit condition; whatever of the scope you cannot do goes under
 
 Not optional: fetch `origin/main` and merge it into your branch
 (`git fetch origin && git merge origin/main`), and run locally exactly what CI
-runs — the command in `AGENTS.md`, «What CI checks». A skipped step counts as
-red. Paste the output in the pull request.
+runs — `make verify` (see `AGENTS.md`, «What CI checks»). A skipped step
+counts as red. Paste the output in the pull request.
 
 ## The pull request
 
