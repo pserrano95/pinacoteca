@@ -1,0 +1,207 @@
+{{define "gallery"}}
+<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · {{call .T "app_name"}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/?lang={{.Lang}}">{{call .T "app_name"}}</a>
+    <nav>
+      <a href="/?lang={{.Lang}}">{{call .T "nav_gallery"}}</a>
+      <a href="/artists/new?lang={{.Lang}}">{{call .T "nav_new_artist"}}</a>
+      <a href="/artworks/new?lang={{.Lang}}">{{call .T "nav_upload"}}</a>
+      <span class="langs muted">
+        <a href="?lang=es">{{call .T "lang_es"}}</a>
+        <a href="?lang=en">{{call .T "lang_en"}}</a>
+      </span>
+    </nav>
+  </header>
+  <main>
+    {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+    {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
+    <h1>{{call .T "gallery_title"}}</h1>
+    {{if not .Artworks}}
+      <p class="empty">{{call .T "gallery_empty"}}</p>
+    {{else}}
+      <div class="grid">
+        {{range .Artworks}}
+        <a class="tile" href="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}?lang={{$.Lang}}">
+          {{if .HasThumb}}
+          <img src="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}/thumb" alt="">
+          {{else}}
+          <img src="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}/original" alt="">
+          {{end}}
+          <div class="meta">
+            <strong>{{.Title}}</strong>
+            <span class="muted">{{.ArtistName}} · {{call $.AgeLabel .AgeYears}}</span>
+          </div>
+        </a>
+        {{end}}
+      </div>
+    {{end}}
+  </main>
+</body>
+</html>
+{{end}}
+
+{{define "artist_new"}}
+<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · {{call .T "app_name"}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/?lang={{.Lang}}">{{call .T "app_name"}}</a>
+    <nav>
+      <a href="/?lang={{.Lang}}">{{call .T "nav_gallery"}}</a>
+      <a href="/artists/new?lang={{.Lang}}">{{call .T "nav_new_artist"}}</a>
+      <a href="/artworks/new?lang={{.Lang}}">{{call .T "nav_upload"}}</a>
+      <span class="langs muted">
+        <a href="?lang=es">{{call .T "lang_es"}}</a>
+        <a href="?lang=en">{{call .T "lang_en"}}</a>
+      </span>
+    </nav>
+  </header>
+  <main>
+    {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+    {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
+    <h1>{{call .T "artist_new_title"}}</h1>
+    <form method="post" action="/artists/new">
+      <input type="hidden" name="lang" value="{{.Lang}}">
+      <label>{{call .T "artist_name"}}
+        <input name="name" required>
+      </label>
+      <label>{{call .T "artist_birth_date"}}
+        <input type="date" name="birth_date" required>
+      </label>
+      <button type="submit">{{call .T "artist_submit"}}</button>
+    </form>
+  </main>
+</body>
+</html>
+{{end}}
+
+{{define "artwork_new"}}
+<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · {{call .T "app_name"}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/?lang={{.Lang}}">{{call .T "app_name"}}</a>
+    <nav>
+      <a href="/?lang={{.Lang}}">{{call .T "nav_gallery"}}</a>
+      <a href="/artists/new?lang={{.Lang}}">{{call .T "nav_new_artist"}}</a>
+      <a href="/artworks/new?lang={{.Lang}}">{{call .T "nav_upload"}}</a>
+      <span class="langs muted">
+        <a href="?lang=es">{{call .T "lang_es"}}</a>
+        <a href="?lang=en">{{call .T "lang_en"}}</a>
+      </span>
+    </nav>
+  </header>
+  <main>
+    {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+    {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
+    <h1>{{call .T "upload_title"}}</h1>
+    {{if not .Artists}}
+      <p class="empty">{{call .T "error_no_artists"}}</p>
+    {{else}}
+    <form method="post" action="/artworks/new" enctype="multipart/form-data">
+      <input type="hidden" name="lang" value="{{.Lang}}">
+      <label>{{call .T "upload_artist"}}
+        <select name="artist_slug" required>
+          <option value="">{{call .T "upload_select_artist"}}</option>
+          {{range .Artists}}
+          <option value="{{.Slug}}" {{if eq .Slug $.SelectedArtist}}selected{{end}}>{{.Name}}</option>
+          {{end}}
+        </select>
+      </label>
+      <label>{{call .T "upload_image"}}
+        <input type="file" name="image" accept="image/jpeg,image/png,image/gif" required>
+      </label>
+      <label>{{call .T "upload_artwork_title"}}
+        <input name="title">
+      </label>
+      <label>{{call .T "upload_date"}}
+        <input type="date" name="date" required>
+      </label>
+      <label>{{call .T "upload_description"}}
+        <textarea name="description" rows="3"></textarea>
+      </label>
+      <label>{{call .T "upload_tags"}}
+        <input name="tags">
+      </label>
+      <label>{{call .T "upload_gifted_to"}}
+        <input name="gifted_to">
+      </label>
+      <button type="submit">{{call .T "upload_submit"}}</button>
+    </form>
+    {{end}}
+  </main>
+</body>
+</html>
+{{end}}
+
+{{define "artwork"}}
+<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · {{call .T "app_name"}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/?lang={{.Lang}}">{{call .T "app_name"}}</a>
+    <nav>
+      <a href="/?lang={{.Lang}}">{{call .T "nav_gallery"}}</a>
+      <a href="/artists/new?lang={{.Lang}}">{{call .T "nav_new_artist"}}</a>
+      <a href="/artworks/new?lang={{.Lang}}">{{call .T "nav_upload"}}</a>
+      <span class="langs muted">
+        <a href="?lang=es">{{call .T "lang_es"}}</a>
+        <a href="?lang=en">{{call .T "lang_en"}}</a>
+      </span>
+    </nav>
+  </header>
+  <main>
+    {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+    {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
+    <article class="artwork">
+      <p><a href="/?lang={{.Lang}}">{{call .T "back_gallery"}}</a></p>
+      <h1>{{.Artwork.Title}}</h1>
+      <p class="muted">{{.ByLine}} · {{.AgeLine}}</p>
+      <img src="/artists/{{.Artwork.ArtistSlug}}/artworks/{{.Artwork.Folder}}/original" alt="">
+      <dl>
+        <dt>{{call .T "artwork_date"}}</dt><dd>{{.Artwork.Date}}</dd>
+        {{if .Artwork.Description}}
+        <dt>{{call .T "artwork_description"}}</dt><dd>{{.Artwork.Description}}</dd>
+        {{end}}
+        {{if .Artwork.Tags}}
+        <dt>{{call .T "artwork_tags"}}</dt><dd>{{.Artwork.Tags}}</dd>
+        {{end}}
+        {{if .Artwork.GiftedTo}}
+        <dt>{{call .T "artwork_gifted_to"}}</dt><dd>{{.Artwork.GiftedTo}}</dd>
+        {{end}}
+      </dl>
+    </article>
+  </main>
+</body>
+</html>
+{{end}}

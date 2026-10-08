@@ -26,9 +26,11 @@ service, analytics or monetisation.
 
 ## Commands
 
-None yet: the repository has no code. The H0 milestone creates the Go module,
-the `Makefile` and the CI, and must fill in this section and «What CI checks»
-with them.
+- `make verify` — gofmt (must be clean), `go vet ./...`, `go test ./...`, and
+  `docker build` (same four steps CI runs).
+- `go run ./cmd/pinacoteca serve --data ./data` — HTTP gallery on `:8080`.
+- `go run ./cmd/pinacoteca reindex --data ./data` — rebuild the SQLite index
+  from the filesystem archive.
 
 ## Hard constraints
 
@@ -53,7 +55,8 @@ with them.
 
 ## What CI checks
 
-Nothing yet (see «Commands»). When it exists, a skipped step counts as red.
+`.github/workflows/ci.yml` runs `make verify`: gofmt (clean tree), `go vet
+./...`, `go test ./...`, and `docker build`. A skipped step counts as red.
 
 ## Commits
 
