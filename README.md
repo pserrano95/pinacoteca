@@ -8,16 +8,18 @@ age, what it shows, who received it — and exhibited only to the relatives the
 child's family chooses. The archive is stored as plain files that stay
 readable without Pinacoteca.
 
-**Status:** H0 skeleton — a single Go binary that stores drawings on disk and
-rebuilds its SQLite index from them.
+**Status:** H0 skeleton, plus passkey accounts. The gallery is closed until
+someone is invited.
 
 ## Run locally
 
 ```bash
+go run ./cmd/pinacoteca invite --data ./data --name "Ada"
 go run ./cmd/pinacoteca serve --data ./data
 ```
 
-Open http://localhost:8080. Create an artist, upload a drawing, then try:
+Open the printed link (it expires after 7 days), register a passkey, then
+use http://localhost:8080. Create an artist, upload a drawing, then try:
 
 ```bash
 rm ./data/index.db

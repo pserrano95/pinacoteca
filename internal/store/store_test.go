@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,5 +166,55 @@ func TestOriginalBytesUnchanged(t *testing.T) {
 	}
 	if !bytes.Equal(got, raw) {
 		t.Fatal("original was re-encoded")
+	}
+}
+
+func TestInviteStoresOnlyTheHash(t *testing.T) {
+	dir := t.TempDir()
+	st := store.New(dir)
+	if err := st.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	link, err := st.CreateInvite("Ana", "http://localhost:8080", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := link[strings.LastIndex(link, "/")+1:]
+	entries, err := os.ReadDir(filepath.Join(dir, "invites"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("invites: %d", len(entries))
+	}
+	if entries[0].Name() == token || strings.Contains(entries[0].Name(), token) {
+		t.Fatal("invite file is named with the token")
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "invites", entries[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), token) {
+		t.Fatal("invite file contains the token")
+	}
+	if entries[0].Name() != store.InviteHash(token)+".json" {
+		t.Fatalf("file %s is not the token hash", entries[0].Name())
+	}
+	inv, err := st.LookupInvite(token, now.Add(7*24*time.Hour-time.Second))
+	if err != nil || inv.Name != "Ana" {
+		t.Fatalf("lookup: %v %+v", err, inv)
+	}
+	if _, err := st.LookupInvite(token, now.Add(7*24*time.Hour)); err == nil {
+		t.Fatal("invite still valid at expiry")
+	}
+	if err := st.MarkInviteUsed(token, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.LookupInvite(token, now); err == nil {
+		t.Fatal("used invite still valid")
+	}
+	if _, err := st.LookupInvite("nope", now); err == nil {
+		t.Fatal("invented token accepted")
 	}
 }

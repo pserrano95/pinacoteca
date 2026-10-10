@@ -37,5 +37,18 @@
   "error_before_birth": "The artwork date is before the artist's date of birth.",
   "error_no_artists": "Create an artist before uploading.",
   "error_required": "Please fill in the required fields.",
-  "back_gallery": "Back to gallery"
+  "back_gallery": "Back to gallery",
+  "nav_logout": "Log out",
+  "login_title": "Sign in",
+  "login_lead": "Use your passkey to open the gallery.",
+  "login_button": "Sign in with a passkey",
+  "login_error": "Could not sign in with that passkey.",
+  "invite_title": "Join this gallery",
+  "invite_lead": "{name}, register a passkey to enter.",
+  "invite_button": "Register a passkey",
+  "invite_invalid_title": "This invite link does not work",
+  "invite_invalid_body": "It may have been used already, or it may have expired.",
+  "auth_failed": "Could not complete the passkey step.",
+  "error_csrf": "The form expired. Reload the page and try again.",
+  "error_unauthorized": "Sign in to continue."
 }

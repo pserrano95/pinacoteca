@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+
+	"github.com/go-webauthn/webauthn/webauthn"
 
 	"github.com/pserrano95/pinacoteca/internal/i18n"
 	"github.com/pserrano95/pinacoteca/internal/imageutil"
@@ -26,14 +29,37 @@ type Server struct {
 	Store *store.Store
 	Index *index.Index
 	tmpl  *template.Template
+
+	cfg    Config
+	wa     *webauthn.WebAuthn
+	secure bool
+
+	mu         sync.Mutex
+	ceremonies map[string]ceremony
+	redeemMu   sync.Mutex
 }
 
-func New(st *store.Store, ix *index.Index) (*Server, error) {
+func New(st *store.Store, ix *index.Index, cfg Config) (*Server, error) {
+	if cfg.RPDisplayName == "" {
+		cfg.RPDisplayName = i18n.T("en", "app_name", nil)
+	}
+	wa, err := newWebAuthn(cfg)
+	if err != nil {
+		return nil, err
+	}
 	tmpl, err := template.ParseFS(assets, "templates/pages.html")
 	if err != nil {
 		return nil, err
 	}
-	return &Server{Store: st, Index: ix, tmpl: tmpl}, nil
+	return &Server{
+		Store:      st,
+		Index:      ix,
+		tmpl:       tmpl,
+		cfg:        cfg,
+		wa:         wa,
+		secure:     strings.HasPrefix(cfg.Origin, "https://"),
+		ceremonies: map[string]ceremony{},
+	}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -42,15 +68,38 @@ func (s *Server) Handler() http.Handler {
 	if err != nil {
 		panic(err)
 	}
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
-	mux.HandleFunc("GET /{$}", s.gallery)
-	mux.HandleFunc("GET /artists/new", s.artistNewGET)
-	mux.HandleFunc("POST /artists/new", s.artistNewPOST)
-	mux.HandleFunc("GET /artworks/new", s.artworkNewGET)
-	mux.HandleFunc("POST /artworks/new", s.artworkNewPOST)
-	mux.HandleFunc("GET /artists/{artist}/artworks/{folder}", s.artworkGET)
-	mux.HandleFunc("GET /artists/{artist}/artworks/{folder}/original", s.serveOriginal)
-	mux.HandleFunc("GET /artists/{artist}/artworks/{folder}/thumb", s.serveThumb)
+	handlers := map[string]http.Handler{
+		"GET /static/":                            http.StripPrefix("/static/", http.FileServer(http.FS(static))),
+		"GET /login":                              http.HandlerFunc(s.loginGET),
+		"GET /invite/{token}":                     http.HandlerFunc(s.inviteGET),
+		"POST /login/begin":                       http.HandlerFunc(s.loginBegin),
+		"POST /login/finish":                      http.HandlerFunc(s.loginFinish),
+		"POST /invite/{token}/begin":              http.HandlerFunc(s.inviteBegin),
+		"POST /invite/{token}/finish":             http.HandlerFunc(s.inviteFinish),
+		"GET /{$}":                                http.HandlerFunc(s.gallery),
+		"GET /artists/new":                        http.HandlerFunc(s.artistNewGET),
+		"POST /artists/new":                       http.HandlerFunc(s.artistNewPOST),
+		"GET /artworks/new":                       http.HandlerFunc(s.artworkNewGET),
+		"POST /artworks/new":                      http.HandlerFunc(s.artworkNewPOST),
+		"GET /artists/{artist}/artworks/{folder}": http.HandlerFunc(s.artworkGET),
+		"GET /artists/{artist}/artworks/{folder}/original": http.HandlerFunc(s.serveOriginal),
+		"GET /artists/{artist}/artworks/{folder}/thumb":    http.HandlerFunc(s.serveThumb),
+		"POST /logout": http.HandlerFunc(s.logout),
+	}
+	for _, rt := range s.routeSpecs() {
+		key := rt.Method + " " + rt.Pattern
+		h, ok := handlers[key]
+		if !ok {
+			panic("missing handler for " + key)
+		}
+		if rt.Method == http.MethodPost {
+			h = s.withCSRF(h)
+		}
+		if !rt.Public {
+			h = s.withSession(h, rt.Fail)
+		}
+		mux.Handle(key, h)
+	}
 	return mux
 }
 
@@ -67,6 +116,12 @@ type pageData struct {
 	Artwork        *artworkView
 	ByLine         string
 	AgeLine        string
+	CSRF           string
+	LoggedIn       bool
+	Lead           string
+	AuthMode       string
+	BeginURL       string
+	FinishURL      string
 }
 
 type artworkView struct {
@@ -95,10 +150,25 @@ func (s *Server) base(lang string) pageData {
 	}
 }
 
+func (s *Server) page(w http.ResponseWriter, r *http.Request) pageData {
+	data := s.base(langFrom(r))
+	data.CSRF = s.ensureCSRF(w, r)
+	if _, ok := s.sessionMember(r); ok {
+		data.LoggedIn = true
+	}
+	return data
+}
+
 func (s *Server) render(w http.ResponseWriter, name string, data pageData) {
+	s.renderStatus(w, http.StatusOK, name, data)
+}
+
+func (s *Server) renderStatus(w http.ResponseWriter, status int, name string, data pageData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
 	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// Status is already committed; nothing more useful to send.
+		return
 	}
 }
 
@@ -115,7 +185,7 @@ func langFrom(r *http.Request) string {
 }
 
 func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
-	data := s.base(langFrom(r))
+	data := s.page(w, r)
 	data.Title = data.T("gallery_title")
 	if flash := r.URL.Query().Get("flash"); flash != "" {
 		data.Flash = data.T(flash)
@@ -145,7 +215,7 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) artistNewGET(w http.ResponseWriter, r *http.Request) {
-	data := s.base(langFrom(r))
+	data := s.page(w, r)
 	data.Title = data.T("artist_new_title")
 	s.render(w, "artist_new", data)
 }
@@ -155,8 +225,8 @@ func (s *Server) artistNewPOST(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	lang := langFrom(r)
-	data := s.base(lang)
+	data := s.page(w, r)
+	lang := data.Lang
 	data.Title = data.T("artist_new_title")
 	name := r.FormValue("name")
 	birth, err := store.ParseDate(r.FormValue("birth_date"))
@@ -170,7 +240,7 @@ func (s *Server) artistNewPOST(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "artist_new", data)
 		return
 	}
-	if err := s.Index.Rebuild(s.Store); err != nil {
+	if err := s.Index.RebuildKeepingSessions(s.Store); err != nil {
 		data.Error = data.T("error_generic")
 		s.render(w, "artist_new", data)
 		return
@@ -179,7 +249,7 @@ func (s *Server) artistNewPOST(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) artworkNewGET(w http.ResponseWriter, r *http.Request) {
-	data := s.base(langFrom(r))
+	data := s.page(w, r)
 	data.Title = data.T("upload_title")
 	artists, err := s.Store.ListArtists()
 	if err != nil {
@@ -193,26 +263,18 @@ func (s *Server) artworkNewGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
-	lang := r.URL.Query().Get("lang")
-	if lang == "" {
-		lang = "en"
-	}
-	data := s.base(lang)
-	data.Title = data.T("upload_title")
-	artists, _ := s.Store.ListArtists()
-	data.Artists = artists
-
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		data := s.page(w, r)
+		data.Title = data.T("upload_title")
 		data.Error = data.T("error_generic")
 		s.render(w, "artwork_new", data)
 		return
 	}
-	if v := r.FormValue("lang"); v != "" {
-		lang = v
-		data = s.base(lang)
-		data.Title = data.T("upload_title")
-		data.Artists = artists
-	}
+	data := s.page(w, r)
+	lang := data.Lang
+	data.Title = data.T("upload_title")
+	artists, _ := s.Store.ListArtists()
+	data.Artists = artists
 	artistSlug := r.FormValue("artist_slug")
 	data.SelectedArtist = artistSlug
 	date, err := store.ParseDate(r.FormValue("date"))
@@ -256,7 +318,7 @@ func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "artwork_new", data)
 		return
 	}
-	if err := s.Index.Rebuild(s.Store); err != nil {
+	if err := s.Index.RebuildKeepingSessions(s.Store); err != nil {
 		data.Error = data.T("error_generic")
 		s.render(w, "artwork_new", data)
 		return
@@ -265,8 +327,8 @@ func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) artworkGET(w http.ResponseWriter, r *http.Request) {
-	lang := langFrom(r)
-	data := s.base(lang)
+	data := s.page(w, r)
+	lang := data.Lang
 	artist := r.PathValue("artist")
 	folder := r.PathValue("folder")
 	row, err := s.Index.GetArtwork(artist, folder)

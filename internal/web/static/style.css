@@ -84,6 +84,21 @@ form {
   border-radius: var(--radius);
   padding: 1.25rem;
 }
+form.inline {
+  display: inline;
+  max-width: none;
+  background: none;
+  border: none;
+  padding: 0;
+  gap: 0;
+}
+form.inline button {
+  background: none;
+  color: var(--accent);
+  border: none;
+  padding: 0;
+  font-weight: 400;
+}
 label { display: grid; gap: 0.35rem; font-size: 0.95rem; }
 input, select, textarea, button {
   font: inherit;

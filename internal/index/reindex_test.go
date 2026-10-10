@@ -72,6 +72,24 @@ func TestReindexRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	when := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	if _, err := st.CreateMember("Ana", []store.Passkey{{
+		ID:        "cred-ana",
+		PublicKey: "pk-ana",
+		Counter:   4,
+		CreatedAt: when,
+	}}, when); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateMember("Luis", []store.Passkey{{
+		ID:        "cred-luis",
+		PublicKey: "pk-luis",
+		Counter:   9,
+		CreatedAt: when.Add(time.Hour),
+	}}, when.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
 	ix, err := index.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -83,8 +101,11 @@ func TestReindexRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(before.Artists) != 2 || len(before.Artworks) != 3 {
-		t.Fatalf("setup: got %d artists %d artworks", len(before.Artists), len(before.Artworks))
+	if len(before.Artists) != 2 || len(before.Artworks) != 3 || len(before.Members) != 2 {
+		t.Fatalf("setup: got %d artists %d artworks %d members", len(before.Artists), len(before.Artworks), len(before.Members))
+	}
+	if len(before.Members[0].Passkeys) != 1 || before.Members[0].Passkeys[0].PublicKey == "" {
+		t.Fatalf("credentials missing before delete: %+v", before.Members)
 	}
 	// Spot-check ages and gifted_to are in the index.
 	var foundGift bool
