@@ -1,26 +1,42 @@
-{{define "gallery"}}
+{{define "head"}}
 <!DOCTYPE html>
 <html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{.CSRF}}">
   <title>{{.Title}} · {{call .T "app_name"}}</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
+{{end}}
+
+{{define "header"}}
 <body>
   <header>
     <a class="brand" href="/?lang={{.Lang}}">{{call .T "app_name"}}</a>
     <nav>
+      {{if .LoggedIn}}
       <a href="/?lang={{.Lang}}">{{call .T "nav_gallery"}}</a>
       <a href="/artists/new?lang={{.Lang}}">{{call .T "nav_new_artist"}}</a>
       <a href="/artworks/new?lang={{.Lang}}">{{call .T "nav_upload"}}</a>
+      <form class="inline" method="post" action="/logout">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="lang" value="{{.Lang}}">
+        <button type="submit">{{call .T "nav_logout"}}</button>
+      </form>
+      {{end}}
       <span class="langs muted">
         <a href="?lang=es">{{call .T "lang_es"}}</a>
         <a href="?lang=en">{{call .T "lang_en"}}</a>
       </span>
     </nav>
   </header>
+{{end}}
+
+{{define "gallery"}}
+{{template "head" .}}
+{{template "header" .}}
   <main>
     {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
     {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
@@ -50,34 +66,15 @@
 {{end}}
 
 {{define "artist_new"}}
-<!DOCTYPE html>
-<html lang="{{.Lang}}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Title}} · {{call .T "app_name"}}</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/htmx.min.js" defer></script>
-</head>
-<body>
-  <header>
-    <a class="brand" href="/?lang={{.Lang}}">{{call .T "app_name"}}</a>
-    <nav>
-      <a href="/?lang={{.Lang}}">{{call .T "nav_gallery"}}</a>
-      <a href="/artists/new?lang={{.Lang}}">{{call .T "nav_new_artist"}}</a>
-      <a href="/artworks/new?lang={{.Lang}}">{{call .T "nav_upload"}}</a>
-      <span class="langs muted">
-        <a href="?lang=es">{{call .T "lang_es"}}</a>
-        <a href="?lang=en">{{call .T "lang_en"}}</a>
-      </span>
-    </nav>
-  </header>
+{{template "head" .}}
+{{template "header" .}}
   <main>
     {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
     {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
     <h1>{{call .T "artist_new_title"}}</h1>
     <form method="post" action="/artists/new">
       <input type="hidden" name="lang" value="{{.Lang}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
       <label>{{call .T "artist_name"}}
         <input name="name" required>
       </label>
@@ -92,28 +89,8 @@
 {{end}}
 
 {{define "artwork_new"}}
-<!DOCTYPE html>
-<html lang="{{.Lang}}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Title}} · {{call .T "app_name"}}</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/htmx.min.js" defer></script>
-</head>
-<body>
-  <header>
-    <a class="brand" href="/?lang={{.Lang}}">{{call .T "app_name"}}</a>
-    <nav>
-      <a href="/?lang={{.Lang}}">{{call .T "nav_gallery"}}</a>
-      <a href="/artists/new?lang={{.Lang}}">{{call .T "nav_new_artist"}}</a>
-      <a href="/artworks/new?lang={{.Lang}}">{{call .T "nav_upload"}}</a>
-      <span class="langs muted">
-        <a href="?lang=es">{{call .T "lang_es"}}</a>
-        <a href="?lang=en">{{call .T "lang_en"}}</a>
-      </span>
-    </nav>
-  </header>
+{{template "head" .}}
+{{template "header" .}}
   <main>
     {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
     {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
@@ -123,6 +100,7 @@
     {{else}}
     <form method="post" action="/artworks/new" enctype="multipart/form-data">
       <input type="hidden" name="lang" value="{{.Lang}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
       <label>{{call .T "upload_artist"}}
         <select name="artist_slug" required>
           <option value="">{{call .T "upload_select_artist"}}</option>
@@ -158,28 +136,8 @@
 {{end}}
 
 {{define "artwork"}}
-<!DOCTYPE html>
-<html lang="{{.Lang}}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Title}} · {{call .T "app_name"}}</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/htmx.min.js" defer></script>
-</head>
-<body>
-  <header>
-    <a class="brand" href="/?lang={{.Lang}}">{{call .T "app_name"}}</a>
-    <nav>
-      <a href="/?lang={{.Lang}}">{{call .T "nav_gallery"}}</a>
-      <a href="/artists/new?lang={{.Lang}}">{{call .T "nav_new_artist"}}</a>
-      <a href="/artworks/new?lang={{.Lang}}">{{call .T "nav_upload"}}</a>
-      <span class="langs muted">
-        <a href="?lang=es">{{call .T "lang_es"}}</a>
-        <a href="?lang=en">{{call .T "lang_en"}}</a>
-      </span>
-    </nav>
-  </header>
+{{template "head" .}}
+{{template "header" .}}
   <main>
     {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
     {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
@@ -201,6 +159,49 @@
         {{end}}
       </dl>
     </article>
+  </main>
+</body>
+</html>
+{{end}}
+
+{{define "login"}}
+{{template "head" .}}
+{{template "header" .}}
+  <main>
+    <h1>{{call .T "login_title"}}</h1>
+    <p>{{call .T "login_lead"}}</p>
+    <div data-auth="login" data-begin="{{.BeginURL}}" data-finish="{{.FinishURL}}" data-error="{{call .T "login_error"}}">
+      <button type="button">{{call .T "login_button"}}</button>
+      <p class="flash error" data-auth-error hidden></p>
+    </div>
+  </main>
+  <script src="/static/auth.js"></script>
+</body>
+</html>
+{{end}}
+
+{{define "invite"}}
+{{template "head" .}}
+{{template "header" .}}
+  <main>
+    <h1>{{call .T "invite_title"}}</h1>
+    <p>{{.Lead}}</p>
+    <div data-auth="register" data-begin="{{.BeginURL}}" data-finish="{{.FinishURL}}" data-error="{{call .T "auth_failed"}}">
+      <button type="button">{{call .T "invite_button"}}</button>
+      <p class="flash error" data-auth-error hidden></p>
+    </div>
+  </main>
+  <script src="/static/auth.js"></script>
+</body>
+</html>
+{{end}}
+
+{{define "invite_invalid"}}
+{{template "head" .}}
+{{template "header" .}}
+  <main>
+    <h1>{{call .T "invite_invalid_title"}}</h1>
+    <p>{{call .T "invite_invalid_body"}}</p>
   </main>
 </body>
 </html>

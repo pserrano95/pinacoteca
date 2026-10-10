@@ -81,12 +81,64 @@ type ArtworkRecord struct {
 }
 
 const (
-	SchemaVersion = 1
-	ArtistsDir    = "artists"
-	DerivedDir    = "derived"
-	ThumbName     = "thumb.jpg"
-	ThumbMetaName = "thumb.json"
-	ArtistFile    = "artist.json"
-	ArtworkFile   = "artwork.json"
-	IndexDBName   = "index.db"
+	SchemaVersion   = 1
+	ArtistsDir      = "artists"
+	MembersDir      = "members"
+	InvitesDir      = "invites"
+	DerivedDir      = "derived"
+	ThumbName       = "thumb.jpg"
+	ThumbMetaName   = "thumb.json"
+	ArtistFile      = "artist.json"
+	ArtworkFile     = "artwork.json"
+	MemberFile      = "member.json"
+	CredentialsFile = "credentials.json"
+	IndexDBName     = "index.db"
+	// InviteTTL is how long a one-time invite link stays redeemable.
+	InviteTTL = 7 * 24 * time.Hour
 )
+
+// Member is persisted as members/<id>/member.json. ID is 32 lowercase hex
+// characters (16 random bytes), also the directory name.
+type Member struct {
+	SchemaVersion int       `json:"schema_version"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// Passkey is one public credential in credentials.json. The id, public key,
+// counter and date are the credential record; the remaining fields are what
+// WebAuthn needs to accept the same credential after the index is rebuilt.
+type Passkey struct {
+	ID              string    `json:"id"`
+	PublicKey       string    `json:"public_key"`
+	Counter         uint32    `json:"counter"`
+	CreatedAt       time.Time `json:"created_at"`
+	AAGUID          string    `json:"aaguid,omitempty"`
+	BackupEligible  bool      `json:"backup_eligible"`
+	BackupState     bool      `json:"backup_state"`
+	UserPresent     bool      `json:"user_present"`
+	UserVerified    bool      `json:"user_verified"`
+	AttestationType string    `json:"attestation_type,omitempty"`
+}
+
+// PasskeysFile is members/<id>/credentials.json.
+type PasskeysFile struct {
+	SchemaVersion int       `json:"schema_version"`
+	Credentials   []Passkey `json:"credentials"`
+}
+
+// Invite is invites/<sha256(token)>.json. The token itself is never stored.
+type Invite struct {
+	SchemaVersion int        `json:"schema_version"`
+	Name          string     `json:"name"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ExpiresAt     time.Time  `json:"expires_at"`
+	UsedAt        *time.Time `json:"used_at,omitempty"`
+}
+
+// MemberRecord is a member plus the passkeys stored beside them.
+type MemberRecord struct {
+	Member   Member
+	Passkeys []Passkey
+}

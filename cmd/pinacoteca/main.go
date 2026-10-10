@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/pserrano95/pinacoteca/internal/index"
 	"github.com/pserrano95/pinacoteca/internal/store"
@@ -29,6 +31,10 @@ func main() {
 		if err := runReindex(os.Args[2:]); err != nil {
 			log.Fatal(err)
 		}
+	case "invite":
+		if err := runInvite(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -42,7 +48,8 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `pinacoteca — private family art gallery
 
 Usage:
-  pinacoteca serve   --data DIR [--addr HOST:PORT]
+  pinacoteca serve   --data DIR [--addr HOST:PORT] [--base-url URL] [--rp-id HOST] [--origin URL]
+  pinacoteca invite  --data DIR --name NAME [--base-url URL]
   pinacoteca reindex --data DIR
 
 `)
@@ -56,6 +63,9 @@ func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	data := dataFlag(fs)
 	addr := fs.String("addr", ":8080", "HTTP listen address")
+	baseURL := fs.String("base-url", "http://localhost:8080", "public URL of this instance (WebAuthn origin and invite links)")
+	rpID := fs.String("rp-id", "", "WebAuthn relying party id (default: host of --base-url)")
+	origin := fs.String("origin", "", "WebAuthn origin (default: --base-url)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -72,10 +82,14 @@ func runServe(args []string) error {
 		return err
 	}
 	defer ix.Close()
-	if err := ix.Rebuild(st); err != nil {
+	if err := ix.RebuildKeepingSessions(st); err != nil {
 		return fmt.Errorf("initial index: %w", err)
 	}
-	srv, err := web.New(st, ix)
+	cfg, err := web.ConfigFromBase(*baseURL, *rpID, *origin)
+	if err != nil {
+		return err
+	}
+	srv, err := web.New(st, ix, cfg)
 	if err != nil {
 		return err
 	}
@@ -109,6 +123,33 @@ func runReindex(args []string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("reindexed %d artists, %d artworks from %s", len(snap.Artists), len(snap.Artworks), dataDir)
+	log.Printf("reindexed %d artists, %d artworks, %d members from %s", len(snap.Artists), len(snap.Artworks), len(snap.Members), dataDir)
+	return nil
+}
+
+func runInvite(args []string) error {
+	fs := flag.NewFlagSet("invite", flag.ContinueOnError)
+	data := dataFlag(fs)
+	name := fs.String("name", "", "display name of the person being invited")
+	baseURL := fs.String("base-url", "http://localhost:8080", "public URL used in the invite link")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*name) == "" {
+		return fmt.Errorf("invite requires --name")
+	}
+	dataDir, err := filepath.Abs(*data)
+	if err != nil {
+		return err
+	}
+	st := store.New(dataDir)
+	if err := st.EnsureLayout(); err != nil {
+		return err
+	}
+	link, err := st.CreateInvite(*name, *baseURL, time.Now())
+	if err != nil {
+		return err
+	}
+	fmt.Println(link)
 	return nil
 }

@@ -28,8 +28,21 @@ func (s *Store) ArtistsRoot() string {
 	return filepath.Join(s.DataDir, ArtistsDir)
 }
 
+func (s *Store) MembersRoot() string {
+	return filepath.Join(s.DataDir, MembersDir)
+}
+
+func (s *Store) InvitesRoot() string {
+	return filepath.Join(s.DataDir, InvitesDir)
+}
+
 func (s *Store) EnsureLayout() error {
-	return os.MkdirAll(s.ArtistsRoot(), 0o755)
+	for _, dir := range []string{s.ArtistsRoot(), s.MembersRoot(), s.InvitesRoot()} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CreateArtist writes artists/<slug>/artist.json. Slug collisions get a numeric suffix.

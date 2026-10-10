@@ -37,5 +37,18 @@
   "error_before_birth": "La fecha de la obra es anterior al nacimiento del artista.",
   "error_no_artists": "Crea un artista antes de subir obras.",
   "error_required": "Rellena los campos obligatorios.",
-  "back_gallery": "Volver a la galería"
+  "back_gallery": "Volver a la galería",
+  "nav_logout": "Salir",
+  "login_title": "Entrar",
+  "login_lead": "Usa tu passkey para abrir la galería.",
+  "login_button": "Entrar con passkey",
+  "login_error": "No se ha podido entrar con esa passkey.",
+  "invite_title": "Únete a esta galería",
+  "invite_lead": "{name}, registra una passkey para entrar.",
+  "invite_button": "Registrar passkey",
+  "invite_invalid_title": "Este enlace de invitación no funciona",
+  "invite_invalid_body": "Puede que ya se haya usado o que haya caducado.",
+  "auth_failed": "No se ha podido completar el paso de la passkey.",
+  "error_csrf": "El formulario ha caducado. Recarga la página e inténtalo de nuevo.",
+  "error_unauthorized": "Entra para continuar."
 }

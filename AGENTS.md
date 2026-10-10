@@ -29,8 +29,16 @@ service, analytics or monetisation.
 - `make verify` — gofmt (must be clean), `go vet ./...`, `go test ./...`, and
   `docker build` (same four steps CI runs).
 - `go run ./cmd/pinacoteca serve --data ./data` — HTTP gallery on `:8080`.
+  `--base-url` (default `http://localhost:8080`) sets the WebAuthn origin;
+  `--rp-id` and `--origin` override the relying party id and origin.
+- `go run ./cmd/pinacoteca invite --data ./data --name "Name" [--base-url URL]`
+  — print a one-time invite link that expires after 7 days. The first account
+  is created only by opening that link; there is no open registration.
 - `go run ./cmd/pinacoteca reindex --data ./data` — rebuild the SQLite index
-  from the filesystem archive.
+  from the filesystem archive. Members and passkey credentials are reloaded
+  from `members/`. Sessions live only in the index, so reindex closes every
+  session. A process restart does not: it reloads the archive and leaves
+  session rows in place.
 
 ## Hard constraints
 
@@ -45,6 +53,11 @@ service, analytics or monetisation.
   step (D-006).
 - Nothing about a child leaves the instance without a guardian's explicit,
   per-artist consent; AI is optional and off by default (D-010).
+- Members and passkey credentials live on disk under `members/`
+  (`member.json`, `credentials.json`). The database indexes them and can be
+  rebuilt. Without a session the gallery is closed, including `/original` and
+  `/thumb`. Open routes are `/static/`, `/login`, `/invite/{token}` and the
+  WebAuthn ceremony endpoints. The first account comes only from `invite`.
 - Decisions in `docs/DECISIONS.md` are not reopened in passing: a change of
   direction is a new decision, recorded there.
 

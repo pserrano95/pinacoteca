@@ -70,23 +70,63 @@ CREATE TABLE IF NOT EXISTS artworks (
   PRIMARY KEY (artist_slug, folder),
   FOREIGN KEY (artist_slug) REFERENCES artists(slug)
 );
+CREATE TABLE IF NOT EXISTS members (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  schema_version INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS credentials (
+  id TEXT PRIMARY KEY,
+  member_id TEXT NOT NULL,
+  public_key TEXT NOT NULL,
+  counter INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  aaguid TEXT NOT NULL DEFAULT '',
+  backup_eligible INTEGER NOT NULL DEFAULT 0,
+  backup_state INTEGER NOT NULL DEFAULT 0,
+  user_present INTEGER NOT NULL DEFAULT 0,
+  user_verified INTEGER NOT NULL DEFAULT 0,
+  attestation_type TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  member_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
 `)
 	return err
 }
 
 // Rebuild clears the index and reloads it from the filesystem store.
+// Sessions are not reloaded: a reindex closes every one of them.
 func (ix *Index) Rebuild(st *store.Store) error {
+	return ix.rebuild(st, false)
+}
+
+// RebuildKeepingSessions reloads the archive and leaves login sessions in
+// place. HTTP writes and process start use this so a restart or an upload
+// does not sign everyone out. pinacoteca reindex uses Rebuild.
+func (ix *Index) RebuildKeepingSessions(st *store.Store) error {
+	return ix.rebuild(st, true)
+}
+
+func (ix *Index) rebuild(st *store.Store, keepSessions bool) error {
 	tx, err := ix.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.Exec(`DELETE FROM artworks`); err != nil {
-		return err
+	tables := []string{"credentials", "members", "artworks", "artists"}
+	if !keepSessions {
+		tables = append([]string{"sessions"}, tables...)
 	}
-	if _, err := tx.Exec(`DELETE FROM artists`); err != nil {
-		return err
+	for _, table := range tables {
+		if _, err := tx.Exec(`DELETE FROM ` + table); err != nil {
+			return err
+		}
 	}
 
 	artists, err := st.ListArtists()
@@ -126,7 +166,39 @@ func (ix *Index) Rebuild(st *store.Store) error {
 			return err
 		}
 	}
+
+	members, err := st.ListMemberRecords()
+	if err != nil {
+		return err
+	}
+	for _, rec := range members {
+		if _, err := tx.Exec(
+			`INSERT INTO members (id, name, created_at, schema_version) VALUES (?, ?, ?, ?)`,
+			rec.Member.ID, rec.Member.Name, rec.Member.CreatedAt.UTC().Format(time.RFC3339), rec.Member.SchemaVersion,
+		); err != nil {
+			return err
+		}
+		for _, pk := range rec.Passkeys {
+			if _, err := tx.Exec(
+				`INSERT INTO credentials (
+					id, member_id, public_key, counter, created_at, aaguid,
+					backup_eligible, backup_state, user_present, user_verified, attestation_type
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				pk.ID, rec.Member.ID, pk.PublicKey, pk.Counter, pk.CreatedAt.UTC().Format(time.RFC3339), pk.AAGUID,
+				boolInt(pk.BackupEligible), boolInt(pk.BackupState), boolInt(pk.UserPresent), boolInt(pk.UserVerified), pk.AttestationType,
+			); err != nil {
+				return err
+			}
+		}
+	}
 	return tx.Commit()
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 // ArtistRow is an indexed artist.
@@ -277,10 +349,29 @@ func scanArtworkRow(row scannable) (ArtworkRow, error) {
 	return r, nil
 }
 
+// MemberRow is an indexed member and their passkeys.
+type MemberRow struct {
+	ID            string
+	Name          string
+	CreatedAt     time.Time
+	SchemaVersion int
+	Passkeys      []CredentialRow
+}
+
+// CredentialRow is an indexed passkey. ID, public key and counter are the
+// fields a rebuild must reproduce (D-004).
+type CredentialRow struct {
+	ID        string
+	PublicKey string
+	Counter   uint32
+	CreatedAt time.Time
+}
+
 // Snapshot is used by the D-004 round-trip test.
 type Snapshot struct {
 	Artists  []ArtistRow
 	Artworks []ArtworkRow
+	Members  []MemberRow
 }
 
 func (ix *Index) Snapshot() (Snapshot, error) {
@@ -292,7 +383,11 @@ func (ix *Index) Snapshot() (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Artists: artists, Artworks: artworks}, nil
+	members, err := ix.ListMembers()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{Artists: artists, Artworks: artworks, Members: members}, nil
 }
 
 // EqualSnapshots compares gallery data including gifted_to and ages (D-004 guardian).
@@ -320,6 +415,24 @@ func EqualSnapshots(a, b Snapshot) error {
 			return fmt.Errorf("artwork mismatch at %d: %+v vs %+v", i, aa, bb)
 		}
 	}
+	if len(a.Members) != len(b.Members) {
+		return fmt.Errorf("member count %d != %d", len(a.Members), len(b.Members))
+	}
+	for i := range a.Members {
+		aa, bb := a.Members[i], b.Members[i]
+		if aa.ID != bb.ID || aa.Name != bb.Name || !aa.CreatedAt.Equal(bb.CreatedAt) || aa.SchemaVersion != bb.SchemaVersion {
+			return fmt.Errorf("member mismatch at %d: %+v vs %+v", i, aa, bb)
+		}
+		if len(aa.Passkeys) != len(bb.Passkeys) {
+			return fmt.Errorf("member %s credential count %d != %d", aa.ID, len(aa.Passkeys), len(bb.Passkeys))
+		}
+		for j := range aa.Passkeys {
+			ca, cb := aa.Passkeys[j], bb.Passkeys[j]
+			if ca.ID != cb.ID || ca.PublicKey != cb.PublicKey || ca.Counter != cb.Counter || !ca.CreatedAt.Equal(cb.CreatedAt) {
+				return fmt.Errorf("credential mismatch for %s at %d: %+v vs %+v", aa.ID, j, ca, cb)
+			}
+		}
+	}
 	return nil
 }
 
@@ -338,4 +451,168 @@ func tagsEqual(a, b []string) bool {
 // FormatTags joins tags for display helpers.
 func FormatTags(tags []string) string {
 	return strings.Join(tags, ", ")
+}
+
+// ListMembers returns members and their passkeys, ordered by id.
+// Credentials are loaded after the member rows are closed: the index uses a
+// single SQLite connection, so a query inside rows.Next deadlocks.
+func (ix *Index) ListMembers() ([]MemberRow, error) {
+	rows, err := ix.db.Query(`SELECT id, name, created_at, schema_version FROM members ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	var out []MemberRow
+	for rows.Next() {
+		var m MemberRow
+		var created string
+		if err := rows.Scan(&m.ID, &m.Name, &created, &m.SchemaVersion); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		t, err := time.Parse(time.RFC3339, created)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		m.CreatedAt = t
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		creds, err := ix.listCredentials(out[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		out[i].Passkeys = creds
+	}
+	return out, nil
+}
+
+func (ix *Index) listCredentials(memberID string) ([]CredentialRow, error) {
+	rows, err := ix.db.Query(
+		`SELECT id, public_key, counter, created_at FROM credentials WHERE member_id = ? ORDER BY id`,
+		memberID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CredentialRow
+	for rows.Next() {
+		var c CredentialRow
+		var created string
+		var counter int64
+		if err := rows.Scan(&c.ID, &c.PublicKey, &counter, &created); err != nil {
+			return nil, err
+		}
+		t, err := time.Parse(time.RFC3339, created)
+		if err != nil {
+			return nil, err
+		}
+		c.CreatedAt = t
+		c.Counter = uint32(counter)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// FindPasskey loads the member and credential for a credential id.
+func (ix *Index) FindPasskey(credID string) (store.Member, store.Passkey, error) {
+	var m store.Member
+	var pk store.Passkey
+	var createdM, createdC string
+	var counter int64
+	var be, bs, up, uv int
+	err := ix.db.QueryRow(`
+SELECT m.id, m.name, m.created_at, m.schema_version,
+       c.id, c.public_key, c.counter, c.created_at, c.aaguid,
+       c.backup_eligible, c.backup_state, c.user_present, c.user_verified, c.attestation_type
+FROM credentials c
+JOIN members m ON m.id = c.member_id
+WHERE c.id = ?`, credID).Scan(
+		&m.ID, &m.Name, &createdM, &m.SchemaVersion,
+		&pk.ID, &pk.PublicKey, &counter, &createdC, &pk.AAGUID,
+		&be, &bs, &up, &uv, &pk.AttestationType,
+	)
+	if err != nil {
+		return store.Member{}, store.Passkey{}, err
+	}
+	m.CreatedAt, err = time.Parse(time.RFC3339, createdM)
+	if err != nil {
+		return store.Member{}, store.Passkey{}, err
+	}
+	pk.CreatedAt, err = time.Parse(time.RFC3339, createdC)
+	if err != nil {
+		return store.Member{}, store.Passkey{}, err
+	}
+	pk.Counter = uint32(counter)
+	pk.BackupEligible = be != 0
+	pk.BackupState = bs != 0
+	pk.UserPresent = up != 0
+	pk.UserVerified = uv != 0
+	return m, pk, nil
+}
+
+// UpdatePasskey writes the sign counter and flags back into the index.
+func (ix *Index) UpdatePasskey(pk store.Passkey) error {
+	res, err := ix.db.Exec(
+		`UPDATE credentials SET counter = ?, backup_eligible = ?, backup_state = ?, user_present = ?, user_verified = ? WHERE id = ?`,
+		pk.Counter, boolInt(pk.BackupEligible), boolInt(pk.BackupState), boolInt(pk.UserPresent), boolInt(pk.UserVerified), pk.ID,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("passkey %s not in index", pk.ID)
+	}
+	return nil
+}
+
+// CreateSession stores a login session. Sessions are not part of the archive.
+func (ix *Index) CreateSession(id, memberID string, now, exp time.Time) error {
+	_, err := ix.db.Exec(
+		`INSERT INTO sessions (id, member_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
+		id, memberID, now.UTC().Format(time.RFC3339), exp.UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// MemberFromSession returns the member for a live session.
+func (ix *Index) MemberFromSession(sessionID string, now time.Time) (store.Member, error) {
+	var m store.Member
+	var created, expires string
+	err := ix.db.QueryRow(`
+SELECT m.id, m.name, m.created_at, m.schema_version, s.expires_at
+FROM sessions s
+JOIN members m ON m.id = s.member_id
+WHERE s.id = ?`, sessionID).Scan(&m.ID, &m.Name, &created, &m.SchemaVersion, &expires)
+	if err != nil {
+		return store.Member{}, err
+	}
+	exp, err := time.Parse(time.RFC3339, expires)
+	if err != nil {
+		return store.Member{}, err
+	}
+	if !now.Before(exp) {
+		return store.Member{}, fmt.Errorf("session expired")
+	}
+	m.CreatedAt, err = time.Parse(time.RFC3339, created)
+	if err != nil {
+		return store.Member{}, err
+	}
+	return m, nil
+}
+
+// DeleteSession removes one session.
+func (ix *Index) DeleteSession(id string) error {
+	_, err := ix.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+	return err
 }
