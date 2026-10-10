@@ -222,3 +222,50 @@ requires the consent of that child's guardian, off by default.
 **Consequences.** AI outputs are derived files (D-004). Heavy models (e.g.
 animation) run as an optional extra container or an external API, never as a
 requirement of the base install.
+
+---
+
+## D-011 — The exhibition is a museum room, with a wall colour per gallery
+
+**Status:** accepted · 2026-10-10
+
+**Reason.** The product principle is that the drawing is the work, not a photo
+of it (`CONTEXT.md`). A quiet museum wall is the only one of the directions we
+compared that lets the child's colours be the only colours on screen, and
+treating a five-year-old's drawing with a gallery's seriousness is what makes
+it moving for the relatives who look at it. One warm touch keeps it from
+feeling cold: each gallery has its own wall colour, chosen by its owner.
+
+**Alternatives considered.**
+- *The fridge door*: drawings taped or held by magnets at slight angles, on a
+  coloured surface, with a handwritten face. The warmest at first sight.
+  Discarded: the decoration competes with the drawing, a few hundred drawings
+  turn it into noise, and "childlike" lettering speaks to children while the
+  people who use the app are adults.
+- *The archive by age*: rows of small cards grouped by the age at which each
+  drawing was made, metadata in monospace. Discarded as the main room: the
+  drawings are shown small and it reads as a catalogue, not an exhibition. It
+  is kept as a secondary view (below).
+- *Keep H0's look* (cream background, serif display, teal accent). The
+  simplest. Discarded: it is the generic look of generated interfaces and was
+  never chosen; fixing the direction now costs less than after H1 and H3 add
+  screens on top of it.
+
+**Consequences.**
+- **The room:** a plain wall, a salon hang (masonry, generous gaps), and each
+  drawing on a white mat with a thin frame line and a soft shadow. Under it, a
+  label: title (serif italic), artist and age, technique and year, and "gifted
+  to". No borders, badges or colour of our own competing with the drawing.
+- **Type:** Instrument Serif for titles and labels, Instrument Sans for the
+  interface (both SIL OFL). Fonts are embedded in the binary and served by
+  the instance, never loaded from a font CDN (D-005, and nothing leaves the
+  instance).
+- **Wall colour per gallery:** the owner picks it from a short curated list of
+  quiet tones that keep the drawing legible; it is stored with the gallery
+  (H1b) and defaults to an off-white. No free colour picker.
+- **Night mode is a dark room:** dark wall, the mats stay light so the
+  drawings keep their real colours.
+- **By age:** each artist has a second view that groups their works by the
+  age at which they were made. It is a tab on the artist, not the home page.
+- H4 is reviewed against this entry; until then new screens use the existing
+  stylesheet and do not add decoration.
