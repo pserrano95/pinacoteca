@@ -6,7 +6,7 @@ name: arranque
 # module and build directories: nothing is restored or saved between runs.
 on:
   push:
-    branches: [main, pserrano95/auto-pinacoteca-7]
+    branches: [main]
   pull_request:
 
 jobs:
