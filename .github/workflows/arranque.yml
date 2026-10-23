@@ -1,0 +1,51 @@
+name: arranque
+
+# Cold start on every pull request and every push to main.
+# Installs the Go version declared in go.mod and runs the check the
+# repository already has (make verify). A fresh runner plus empty
+# module and build directories: nothing is restored or saved between runs.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  arranque:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Go from go.mod
+        run: |
+          set -euo pipefail
+          version="$(awk '/^go / { print $2; exit }' go.mod)"
+          if [ -z "${version}" ]; then
+            echo "go.mod does not declare a Go version"
+            exit 1
+          fi
+          case "$(uname -m)" in
+            x86_64) goarch=amd64 ;;
+            aarch64|arm64) goarch=arm64 ;;
+            *)
+              echo "unsupported architecture: $(uname -m)"
+              exit 1
+              ;;
+          esac
+          tarball="go${version}.linux-${goarch}.tar.gz"
+          url="https://go.dev/dl/${tarball}"
+          echo "Installing Go ${version} from ${url}"
+          curl -fsSL "${url}" -o "${RUNNER_TEMP}/${tarball}"
+          sudo rm -rf /usr/local/go
+          sudo tar -C /usr/local -xzf "${RUNNER_TEMP}/${tarball}"
+          echo "/usr/local/go/bin" >> "${GITHUB_PATH}"
+          echo "GOPATH=${RUNNER_TEMP}/gopath" >> "${GITHUB_ENV}"
+          echo "GOCACHE=${RUNNER_TEMP}/gocache" >> "${GITHUB_ENV}"
+          echo "GOMODCACHE=${RUNNER_TEMP}/gomodcache" >> "${GITHUB_ENV}"
+          echo "GOTOOLCHAIN=local" >> "${GITHUB_ENV}"
+
+      - name: make verify
+        run: |
+          set -euo pipefail
+          go version
+          make verify
