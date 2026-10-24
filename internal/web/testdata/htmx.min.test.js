@@ -500,7 +500,7 @@ function loadHtmx() {
   const { sandbox, logs, XMLHttpRequest: XHR } = installBrowser();
   sandbox.document.readyState = "loading";
   vm.createContext(sandbox);
-  const source = fs.readFileSync(path.join(__dirname, "htmx.min.js"), "utf8");
+  const source = fs.readFileSync(path.join(__dirname, "..", "static", "htmx.min.js"), "utf8");
   vm.runInContext(source, sandbox, { filename: "htmx.min.js" });
   sandbox.document.readyState = "complete";
   if (!sandbox.htmx || typeof sandbox.htmx.parseInterval !== "function") {
