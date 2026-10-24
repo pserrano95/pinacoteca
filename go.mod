@@ -3,7 +3,7 @@ module github.com/pserrano95/pinacoteca
 go 1.27.3
 
 require (
-	github.com/fxamacker/cbor/v2 v2.9.0
+	github.com/fxamacker/cbor/v2 v2.9.6
 	github.com/go-webauthn/webauthn v0.15.0
 	modernc.org/sqlite v1.60.1
 )
