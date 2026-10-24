@@ -26,8 +26,9 @@ service, analytics or monetisation.
 
 ## Commands
 
-- `make verify` — gofmt (must be clean), `go vet ./...`, `go test ./...`, and
-  `docker build` (same four steps CI runs).
+- `make verify` — gofmt (must be clean), `go vet ./...`, `go test ./...`,
+  a check that the runtime Alpine is still in support, and `docker build`
+  (the same steps CI runs).
 - `go run ./cmd/pinacoteca serve --data ./data` — HTTP gallery on `:8080`.
   `--base-url` (default `http://localhost:8080`) sets the WebAuthn origin;
   `--rp-id` and `--origin` override the relying party id and origin.
@@ -69,7 +70,8 @@ service, analytics or monetisation.
 ## What CI checks
 
 `.github/workflows/ci.yml` runs `make verify`: gofmt (clean tree), `go vet
-./...`, `go test ./...`, and `docker build`. A skipped step counts as red.
+./...`, `go test ./...`, the runtime Alpine support check, and `docker build`.
+A skipped step counts as red.
 
 ## Commits
 
