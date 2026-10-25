@@ -35,6 +35,10 @@ func main() {
 		if err := runInvite(os.Args[2:]); err != nil {
 			log.Fatal(err)
 		}
+	case "gallery":
+		if err := runGallery(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -50,6 +54,9 @@ func usage() {
 Usage:
   pinacoteca serve   --data DIR [--addr HOST:PORT] [--base-url URL] [--rp-id HOST] [--origin URL]
   pinacoteca invite  --data DIR --name NAME [--base-url URL]
+  pinacoteca gallery create     --data DIR --name NAME [--wall-colour COLOUR]
+  pinacoteca gallery add-artist --data DIR --gallery SLUG --artist SLUG
+  pinacoteca gallery add-member --data DIR --gallery SLUG --member ID --role ROLE
   pinacoteca reindex --data DIR
 
 `)
@@ -123,7 +130,7 @@ func runReindex(args []string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("reindexed %d artists, %d artworks, %d members from %s", len(snap.Artists), len(snap.Artworks), len(snap.Members), dataDir)
+	log.Printf("reindexed %d artists, %d artworks, %d members, %d galleries from %s", len(snap.Artists), len(snap.Artworks), len(snap.Members), len(snap.Galleries), dataDir)
 	return nil
 }
 
@@ -152,4 +159,100 @@ func runInvite(args []string) error {
 	}
 	fmt.Println(link)
 	return nil
+}
+
+func runGallery(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("gallery requires create, add-artist or add-member")
+	}
+	switch args[0] {
+	case "create":
+		return runGalleryCreate(args[1:])
+	case "add-artist":
+		return runGalleryAddArtist(args[1:])
+	case "add-member":
+		return runGalleryAddMember(args[1:])
+	default:
+		return fmt.Errorf("unknown gallery command %q", args[0])
+	}
+}
+
+func runGalleryCreate(args []string) error {
+	fs := flag.NewFlagSet("gallery create", flag.ContinueOnError)
+	data := dataFlag(fs)
+	name := fs.String("name", "", "display name of the gallery")
+	wall := fs.String("wall-colour", "", "wall colour from the closed list (default off-white)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*name) == "" {
+		return fmt.Errorf("gallery create requires --name")
+	}
+	st, err := openStore(*data)
+	if err != nil {
+		return err
+	}
+	g, err := st.CreateGallery(*name, *wall)
+	if err != nil {
+		return err
+	}
+	fmt.Println(g.Slug)
+	return nil
+}
+
+func runGalleryAddArtist(args []string) error {
+	fs := flag.NewFlagSet("gallery add-artist", flag.ContinueOnError)
+	data := dataFlag(fs)
+	gallery := fs.String("gallery", "", "gallery slug")
+	artist := fs.String("artist", "", "artist slug")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*gallery) == "" || strings.TrimSpace(*artist) == "" {
+		return fmt.Errorf("gallery add-artist requires --gallery and --artist")
+	}
+	st, err := openStore(*data)
+	if err != nil {
+		return err
+	}
+	if err := st.AddGalleryArtist(*gallery, *artist); err != nil {
+		return err
+	}
+	fmt.Printf("added artist %s to %s\n", *artist, *gallery)
+	return nil
+}
+
+func runGalleryAddMember(args []string) error {
+	fs := flag.NewFlagSet("gallery add-member", flag.ContinueOnError)
+	data := dataFlag(fs)
+	gallery := fs.String("gallery", "", "gallery slug")
+	member := fs.String("member", "", "member id")
+	role := fs.String("role", "", "owner, contributor or viewer")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*gallery) == "" || strings.TrimSpace(*member) == "" || strings.TrimSpace(*role) == "" {
+		return fmt.Errorf("gallery add-member requires --gallery, --member and --role")
+	}
+	st, err := openStore(*data)
+	if err != nil {
+		return err
+	}
+	if err := st.AddGalleryMember(*gallery, *member, *role); err != nil {
+		return err
+	}
+	fmt.Printf("added member %s to %s as %s\n", *member, *gallery, *role)
+	return nil
+}
+
+func openStore(data string) (*store.Store, error) {
+	dataDir, err := filepath.Abs(data)
+	if err != nil {
+		return nil, err
+	}
+	st := store.New(dataDir)
+	if err := st.EnsureLayout(); err != nil {
+		return nil, err
+	}
+	return st, nil
 }

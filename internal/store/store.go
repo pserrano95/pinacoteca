@@ -28,6 +28,10 @@ func (s *Store) ArtistsRoot() string {
 	return filepath.Join(s.DataDir, ArtistsDir)
 }
 
+func (s *Store) GalleriesRoot() string {
+	return filepath.Join(s.DataDir, GalleriesDir)
+}
+
 func (s *Store) MembersRoot() string {
 	return filepath.Join(s.DataDir, MembersDir)
 }
@@ -37,7 +41,7 @@ func (s *Store) InvitesRoot() string {
 }
 
 func (s *Store) EnsureLayout() error {
-	for _, dir := range []string{s.ArtistsRoot(), s.MembersRoot(), s.InvitesRoot()} {
+	for _, dir := range []string{s.ArtistsRoot(), s.GalleriesRoot(), s.MembersRoot(), s.InvitesRoot()} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}

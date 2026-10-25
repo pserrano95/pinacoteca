@@ -95,6 +95,23 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS galleries (
+  slug TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  wall_colour TEXT NOT NULL,
+  schema_version INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS gallery_artists (
+  gallery_slug TEXT NOT NULL,
+  artist_slug TEXT NOT NULL,
+  PRIMARY KEY (gallery_slug, artist_slug)
+);
+CREATE TABLE IF NOT EXISTS gallery_members (
+  gallery_slug TEXT NOT NULL,
+  member_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  PRIMARY KEY (gallery_slug, member_id)
+);
 `)
 	return err
 }
@@ -119,7 +136,7 @@ func (ix *Index) rebuild(st *store.Store, keepSessions bool) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	tables := []string{"credentials", "members", "artworks", "artists"}
+	tables := []string{"gallery_members", "gallery_artists", "galleries", "credentials", "members", "artworks", "artists"}
 	if !keepSessions {
 		tables = append([]string{"sessions"}, tables...)
 	}
@@ -186,6 +203,35 @@ func (ix *Index) rebuild(st *store.Store, keepSessions bool) error {
 				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				pk.ID, rec.Member.ID, pk.PublicKey, pk.Counter, pk.CreatedAt.UTC().Format(time.RFC3339), pk.AAGUID,
 				boolInt(pk.BackupEligible), boolInt(pk.BackupState), boolInt(pk.UserPresent), boolInt(pk.UserVerified), pk.AttestationType,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	galleries, err := st.ListGalleries()
+	if err != nil {
+		return err
+	}
+	for _, g := range galleries {
+		if _, err := tx.Exec(
+			`INSERT INTO galleries (slug, name, wall_colour, schema_version) VALUES (?, ?, ?, ?)`,
+			g.Slug, g.Name, g.WallColour, g.SchemaVersion,
+		); err != nil {
+			return err
+		}
+		for _, artistSlug := range g.Artists {
+			if _, err := tx.Exec(
+				`INSERT INTO gallery_artists (gallery_slug, artist_slug) VALUES (?, ?)`,
+				g.Slug, artistSlug,
+			); err != nil {
+				return err
+			}
+		}
+		for _, m := range g.Members {
+			if _, err := tx.Exec(
+				`INSERT INTO gallery_members (gallery_slug, member_id, role) VALUES (?, ?, ?)`,
+				g.Slug, m.ID, m.Role,
 			); err != nil {
 				return err
 			}
@@ -367,11 +413,28 @@ type CredentialRow struct {
 	CreatedAt time.Time
 }
 
+// GalleryMemberRow is one indexed membership.
+type GalleryMemberRow struct {
+	MemberID string
+	Role     string
+}
+
+// GalleryRow is an indexed gallery, including the artists and roles it shows.
+type GalleryRow struct {
+	Slug          string
+	Name          string
+	WallColour    string
+	SchemaVersion int
+	Artists       []string
+	Members       []GalleryMemberRow
+}
+
 // Snapshot is used by the D-004 round-trip test.
 type Snapshot struct {
-	Artists  []ArtistRow
-	Artworks []ArtworkRow
-	Members  []MemberRow
+	Artists   []ArtistRow
+	Artworks  []ArtworkRow
+	Members   []MemberRow
+	Galleries []GalleryRow
 }
 
 func (ix *Index) Snapshot() (Snapshot, error) {
@@ -387,7 +450,11 @@ func (ix *Index) Snapshot() (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Artists: artists, Artworks: artworks, Members: members}, nil
+	galleries, err := ix.ListGalleries()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{Artists: artists, Artworks: artworks, Members: members, Galleries: galleries}, nil
 }
 
 // EqualSnapshots compares gallery data including gifted_to and ages (D-004 guardian).
@@ -430,6 +497,26 @@ func EqualSnapshots(a, b Snapshot) error {
 			ca, cb := aa.Passkeys[j], bb.Passkeys[j]
 			if ca.ID != cb.ID || ca.PublicKey != cb.PublicKey || ca.Counter != cb.Counter || !ca.CreatedAt.Equal(cb.CreatedAt) {
 				return fmt.Errorf("credential mismatch for %s at %d: %+v vs %+v", aa.ID, j, ca, cb)
+			}
+		}
+	}
+	if len(a.Galleries) != len(b.Galleries) {
+		return fmt.Errorf("gallery count %d != %d", len(a.Galleries), len(b.Galleries))
+	}
+	for i := range a.Galleries {
+		ga, gb := a.Galleries[i], b.Galleries[i]
+		if ga.Slug != gb.Slug || ga.Name != gb.Name || ga.WallColour != gb.WallColour || ga.SchemaVersion != gb.SchemaVersion {
+			return fmt.Errorf("gallery mismatch at %d: %+v vs %+v", i, ga, gb)
+		}
+		if !tagsEqual(ga.Artists, gb.Artists) {
+			return fmt.Errorf("gallery %s artists: %v vs %v", ga.Slug, ga.Artists, gb.Artists)
+		}
+		if len(ga.Members) != len(gb.Members) {
+			return fmt.Errorf("gallery %s member count %d != %d", ga.Slug, len(ga.Members), len(gb.Members))
+		}
+		for j := range ga.Members {
+			if ga.Members[j].MemberID != gb.Members[j].MemberID || ga.Members[j].Role != gb.Members[j].Role {
+				return fmt.Errorf("gallery %s member mismatch at %d: %+v vs %+v", ga.Slug, j, ga.Members[j], gb.Members[j])
 			}
 		}
 	}
@@ -615,4 +702,158 @@ WHERE s.id = ?`, sessionID).Scan(&m.ID, &m.Name, &created, &m.SchemaVersion, &ex
 func (ix *Index) DeleteSession(id string) error {
 	_, err := ix.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
 	return err
+}
+
+// ListGalleries returns galleries with their artists and members.
+// Child rows are loaded after the gallery cursor is closed: the index uses
+// one SQLite connection, so a query inside rows.Next deadlocks.
+func (ix *Index) ListGalleries() ([]GalleryRow, error) {
+	rows, err := ix.db.Query(`SELECT slug, name, wall_colour, schema_version FROM galleries ORDER BY slug`)
+	if err != nil {
+		return nil, err
+	}
+	var out []GalleryRow
+	for rows.Next() {
+		var g GalleryRow
+		if err := rows.Scan(&g.Slug, &g.Name, &g.WallColour, &g.SchemaVersion); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		artists, err := ix.galleryArtistSlugs(out[i].Slug)
+		if err != nil {
+			return nil, err
+		}
+		members, err := ix.galleryMembers(out[i].Slug)
+		if err != nil {
+			return nil, err
+		}
+		out[i].Artists = artists
+		out[i].Members = members
+	}
+	return out, nil
+}
+
+func (ix *Index) galleryArtistSlugs(gallerySlug string) ([]string, error) {
+	rows, err := ix.db.Query(
+		`SELECT artist_slug FROM gallery_artists WHERE gallery_slug = ? ORDER BY artist_slug`,
+		gallerySlug,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		out = append(out, slug)
+	}
+	return out, rows.Err()
+}
+
+func (ix *Index) galleryMembers(gallerySlug string) ([]GalleryMemberRow, error) {
+	rows, err := ix.db.Query(
+		`SELECT member_id, role FROM gallery_members WHERE gallery_slug = ? ORDER BY member_id`,
+		gallerySlug,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []GalleryMemberRow{}
+	for rows.Next() {
+		var m GalleryMemberRow
+		if err := rows.Scan(&m.MemberID, &m.Role); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// CanSeeArtist reports whether the member belongs to a gallery that lists the artist.
+func (ix *Index) CanSeeArtist(memberID, artistSlug string) (bool, error) {
+	var n int
+	err := ix.db.QueryRow(`
+SELECT COUNT(*) FROM gallery_members gm
+JOIN gallery_artists ga ON ga.gallery_slug = gm.gallery_slug
+WHERE gm.member_id = ? AND ga.artist_slug = ?`, memberID, artistSlug).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// CanUploadArtist reports whether the member is owner or contributor of a gallery that lists the artist.
+func (ix *Index) CanUploadArtist(memberID, artistSlug string) (bool, error) {
+	var n int
+	err := ix.db.QueryRow(`
+SELECT COUNT(*) FROM gallery_members gm
+JOIN gallery_artists ga ON ga.gallery_slug = gm.gallery_slug
+WHERE gm.member_id = ? AND ga.artist_slug = ? AND gm.role IN (?, ?)`,
+		memberID, artistSlug, store.RoleOwner, store.RoleContributor).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// MemberCanUpload reports whether the member is owner or contributor of any gallery.
+func (ix *Index) MemberCanUpload(memberID string) (bool, error) {
+	var n int
+	err := ix.db.QueryRow(
+		`SELECT COUNT(*) FROM gallery_members WHERE member_id = ? AND role IN (?, ?)`,
+		memberID, store.RoleOwner, store.RoleContributor,
+	).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// VisibleArtistSlugs is the set of artists the member can see.
+func (ix *Index) VisibleArtistSlugs(memberID string) (map[string]struct{}, error) {
+	return ix.artistSlugsForMember(memberID, false)
+}
+
+// UploadableArtistSlugs is the set of artists the member may upload for.
+func (ix *Index) UploadableArtistSlugs(memberID string) (map[string]struct{}, error) {
+	return ix.artistSlugsForMember(memberID, true)
+}
+
+func (ix *Index) artistSlugsForMember(memberID string, uploadOnly bool) (map[string]struct{}, error) {
+	q := `
+SELECT DISTINCT ga.artist_slug
+FROM gallery_artists ga
+JOIN gallery_members gm ON gm.gallery_slug = ga.gallery_slug
+WHERE gm.member_id = ?`
+	args := []any{memberID}
+	if uploadOnly {
+		q += ` AND gm.role IN (?, ?)`
+		args = append(args, store.RoleOwner, store.RoleContributor)
+	}
+	rows, err := ix.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]struct{}{}
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		out[slug] = struct{}{}
+	}
+	return out, rows.Err()
 }

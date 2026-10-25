@@ -8,8 +8,9 @@ age, what it shows, who received it — and exhibited only to the relatives the
 child's family chooses. The archive is stored as plain files that stay
 readable without Pinacoteca.
 
-**Status:** H0 skeleton, plus passkey accounts. The gallery is closed until
-someone is invited.
+**Status:** H0 skeleton, passkey accounts, and galleries with roles. The
+gallery is closed until someone is invited. Works are shown only to members
+of a gallery that includes the artist.
 
 ## Run locally
 
@@ -19,7 +20,17 @@ go run ./cmd/pinacoteca serve --data ./data
 ```
 
 Open the printed link (it expires after 7 days), register a passkey, then
-use http://localhost:8080. Create an artist, upload a drawing, then try:
+use http://localhost:8080. Create an artist. The artist slug is the directory
+under `data/artists/`; the member id is the directory under `data/members/`.
+Put them in a gallery or the home stays empty:
+
+```bash
+go run ./cmd/pinacoteca gallery create --data ./data --name "Grandparents"
+go run ./cmd/pinacoteca gallery add-artist --data ./data --gallery grandparents --artist ARTIST_SLUG
+go run ./cmd/pinacoteca gallery add-member --data ./data --gallery grandparents --member MEMBER_ID --role owner
+```
+
+Then upload a drawing and try:
 
 ```bash
 rm ./data/index.db

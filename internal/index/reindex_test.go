@@ -174,6 +174,9 @@ func TestEmptyDataDirFirstStart(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "artists")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(dir, "galleries")); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestReindexWithoutExistingDB(t *testing.T) {
@@ -210,5 +213,123 @@ func TestReindexWithoutExistingDB(t *testing.T) {
 	}
 	if len(snap.Artworks) != 1 || snap.Artworks[0].GiftedTo != "Someone" {
 		t.Fatalf("unexpected snapshot: %+v", snap.Artworks)
+	}
+}
+
+// TestGalleryReindexRoundTrip is the D-004 guardian for galleries: roles,
+// wall colour and a shared artist survive deleting index.db.
+func TestGalleryReindexRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	st := store.New(dir)
+	if err := st.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+	artist, err := st.CreateArtist("Lucía", time.Date(2019, 3, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	when := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	ana, err := st.CreateMember("Ana", []store.Passkey{{
+		ID: "cred-ana", PublicKey: "pk-ana", Counter: 1, CreatedAt: when,
+	}}, when)
+	if err != nil {
+		t.Fatal(err)
+	}
+	luis, err := st.CreateMember("Luis", []store.Passkey{{
+		ID: "cred-luis", PublicKey: "pk-luis", Counter: 2, CreatedAt: when,
+	}}, when)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := st.CreateGallery("Familia", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cousins, err := st.CreateGallery("Primos", "pale-sage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryArtist(home.Slug, artist.Slug); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryArtist(cousins.Slug, artist.Slug); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(home.Slug, ana.ID, store.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(cousins.Slug, ana.ID, store.RoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(cousins.Slug, luis.ID, store.RoleContributor); err != nil {
+		t.Fatal(err)
+	}
+
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Rebuild(st); err != nil {
+		t.Fatal(err)
+	}
+	before, err := ix.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Galleries) != 2 || len(before.Artists) != 1 {
+		t.Fatalf("setup: %+v artists, %+v galleries", before.Artists, before.Galleries)
+	}
+	var anaOwner, anaViewer, luisContributor, sharedBoth bool
+	shared := 0
+	for _, g := range before.Galleries {
+		hasArtist := false
+		for _, slug := range g.Artists {
+			if slug == artist.Slug {
+				hasArtist = true
+				shared++
+			}
+		}
+		if !hasArtist {
+			t.Fatalf("gallery %s lost the shared artist", g.Slug)
+		}
+		for _, m := range g.Members {
+			switch {
+			case g.Slug == home.Slug && m.MemberID == ana.ID && m.Role == store.RoleOwner && g.WallColour == store.WallColourDefault:
+				anaOwner = true
+			case g.Slug == cousins.Slug && m.MemberID == ana.ID && m.Role == store.RoleViewer && g.WallColour == "pale-sage":
+				anaViewer = true
+			case g.Slug == cousins.Slug && m.MemberID == luis.ID && m.Role == store.RoleContributor:
+				luisContributor = true
+			}
+		}
+	}
+	sharedBoth = shared == 2
+	if !anaOwner || !anaViewer || !luisContributor || !sharedBoth {
+		t.Fatalf("roles before delete: owner %v viewer %v contributor %v shared %d", anaOwner, anaViewer, luisContributor, shared)
+	}
+	if err := ix.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := index.DBPath(dir)
+	if err := os.Remove(dbPath); err != nil {
+		t.Fatal(err)
+	}
+	for _, suf := range []string{"-wal", "-shm"} {
+		_ = os.Remove(dbPath + suf)
+	}
+	ix2, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix2.Close()
+	if err := ix2.Rebuild(st); err != nil {
+		t.Fatal(err)
+	}
+	after, err := ix2.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := index.EqualSnapshots(before, after); err != nil {
+		t.Fatalf("reindex did not reproduce galleries: %v", err)
 	}
 }
