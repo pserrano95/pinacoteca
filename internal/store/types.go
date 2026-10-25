@@ -83,6 +83,7 @@ type ArtworkRecord struct {
 const (
 	SchemaVersion   = 1
 	ArtistsDir      = "artists"
+	GalleriesDir    = "galleries"
 	MembersDir      = "members"
 	InvitesDir      = "invites"
 	DerivedDir      = "derived"
@@ -90,6 +91,7 @@ const (
 	ThumbMetaName   = "thumb.json"
 	ArtistFile      = "artist.json"
 	ArtworkFile     = "artwork.json"
+	GalleryFile     = "gallery.json"
 	MemberFile      = "member.json"
 	CredentialsFile = "credentials.json"
 	IndexDBName     = "index.db"
@@ -141,4 +143,60 @@ type Invite struct {
 type MemberRecord struct {
 	Member   Member
 	Passkeys []Passkey
+}
+
+// Gallery roles (D-007). A person can hold a different role in each gallery.
+const (
+	RoleOwner       = "owner"
+	RoleContributor = "contributor"
+	RoleViewer      = "viewer"
+)
+
+// WallColourDefault is the off-white a gallery stores when nobody picks one (D-011).
+const WallColourDefault = "off-white"
+
+// WallColours is the closed list stored with a gallery. The token is not painted here.
+var WallColours = []string{
+	WallColourDefault,
+	"warm-stone",
+	"pale-sage",
+	"dusty-blue",
+	"soft-sand",
+}
+
+// GalleryMember is one person's role inside a gallery.
+type GalleryMember struct {
+	ID   string `json:"id"`
+	Role string `json:"role"`
+}
+
+// Gallery is persisted as galleries/<slug>/gallery.json.
+// Artists are slugs of artists/<slug>, never a copy of the works (D-007).
+type Gallery struct {
+	SchemaVersion int             `json:"schema_version"`
+	Name          string          `json:"name"`
+	Slug          string          `json:"slug"`
+	WallColour    string          `json:"wall_colour"`
+	Artists       []string        `json:"artists"`
+	Members       []GalleryMember `json:"members"`
+}
+
+// ValidRole reports whether role is one of the three gallery roles.
+func ValidRole(role string) bool {
+	switch role {
+	case RoleOwner, RoleContributor, RoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidWallColour reports whether colour is in the closed list.
+func ValidWallColour(colour string) bool {
+	for _, c := range WallColours {
+		if c == colour {
+			return true
+		}
+	}
+	return false
 }

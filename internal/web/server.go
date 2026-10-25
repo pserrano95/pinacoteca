@@ -190,6 +190,17 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 	if flash := r.URL.Query().Get("flash"); flash != "" {
 		data.Flash = data.T(flash)
 	}
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	visible, err := s.Index.VisibleArtistSlugs(m.ID)
+	if err != nil {
+		data.Error = data.T("error_generic")
+		s.render(w, "gallery", data)
+		return
+	}
 	rows, err := s.Index.ListArtworks()
 	if err != nil {
 		data.Error = data.T("error_generic")
@@ -197,6 +208,9 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
+		if _, show := visible[row.ArtistSlug]; !show {
+			continue
+		}
 		thumb := filepath.Join(s.Store.ArtistsRoot(), row.ArtistSlug, row.Folder, store.DerivedDir, store.ThumbName)
 		data.Artworks = append(data.Artworks, artworkView{
 			ArtistSlug:  row.ArtistSlug,
@@ -249,9 +263,23 @@ func (s *Server) artistNewPOST(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) artworkNewGET(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	can, err := s.Index.MemberCanUpload(m.ID)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	if !can {
+		http.NotFound(w, r)
+		return
+	}
 	data := s.page(w, r)
 	data.Title = data.T("upload_title")
-	artists, err := s.Store.ListArtists()
+	artists, err := s.uploadableArtists(m.ID)
 	if err != nil {
 		data.Error = data.T("error_generic")
 		s.render(w, "artwork_new", data)
@@ -263,6 +291,20 @@ func (s *Server) artworkNewGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	canAny, err := s.Index.MemberCanUpload(m.ID)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	if !canAny {
+		http.NotFound(w, r)
+		return
+	}
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
 		data := s.page(w, r)
 		data.Title = data.T("upload_title")
@@ -273,10 +315,27 @@ func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
 	data := s.page(w, r)
 	lang := data.Lang
 	data.Title = data.T("upload_title")
-	artists, _ := s.Store.ListArtists()
+	artists, err := s.uploadableArtists(m.ID)
+	if err != nil {
+		data.Error = data.T("error_generic")
+		s.render(w, "artwork_new", data)
+		return
+	}
 	data.Artists = artists
 	artistSlug := r.FormValue("artist_slug")
 	data.SelectedArtist = artistSlug
+	if artistSlug != "" {
+		can, err := s.Index.CanUploadArtist(m.ID, artistSlug)
+		if err != nil {
+			data.Error = data.T("error_generic")
+			s.render(w, "artwork_new", data)
+			return
+		}
+		if !can {
+			http.NotFound(w, r)
+			return
+		}
+	}
 	date, err := store.ParseDate(r.FormValue("date"))
 	if err != nil || artistSlug == "" {
 		data.Error = data.T("error_required")
@@ -331,6 +390,9 @@ func (s *Server) artworkGET(w http.ResponseWriter, r *http.Request) {
 	lang := data.Lang
 	artist := r.PathValue("artist")
 	folder := r.PathValue("folder")
+	if s.hiddenArtist(w, r, artist) {
+		return
+	}
 	row, err := s.Index.GetArtwork(artist, folder)
 	if err != nil {
 		http.NotFound(w, r)
@@ -357,6 +419,9 @@ func (s *Server) artworkGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveOriginal(w http.ResponseWriter, r *http.Request) {
+	if s.hiddenArtist(w, r, r.PathValue("artist")) {
+		return
+	}
 	rec, err := s.Store.LoadArtwork(r.PathValue("artist"), r.PathValue("folder"))
 	if err != nil {
 		http.NotFound(w, r)
@@ -366,12 +431,58 @@ func (s *Server) serveOriginal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveThumb(w http.ResponseWriter, r *http.Request) {
+	if s.hiddenArtist(w, r, r.PathValue("artist")) {
+		return
+	}
 	rec, err := s.Store.LoadArtwork(r.PathValue("artist"), r.PathValue("folder"))
 	if err != nil || rec.ThumbPath == "" {
 		http.NotFound(w, r)
 		return
 	}
 	http.ServeFile(w, r, rec.ThumbPath)
+}
+
+// hiddenArtist writes 404 when the signed-in member shares no gallery with
+// artistSlug, and 500 when the index cannot answer. It returns true when
+// the response is already written.
+func (s *Server) hiddenArtist(w http.ResponseWriter, r *http.Request, artistSlug string) bool {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return true
+	}
+	see, err := s.Index.CanSeeArtist(m.ID, artistSlug)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return true
+	}
+	if !see {
+		http.NotFound(w, r)
+		return true
+	}
+	return false
+}
+
+func (s *Server) uploadableArtists(memberID string) ([]store.Artist, error) {
+	slugs, err := s.Index.UploadableArtistSlugs(memberID)
+	if err != nil {
+		return nil, err
+	}
+	all, err := s.Store.ListArtists()
+	if err != nil {
+		return nil, err
+	}
+	var out []store.Artist
+	for _, a := range all {
+		if _, ok := slugs[a.Slug]; ok {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+func genericError(r *http.Request) string {
+	return i18n.T(i18n.NormalizeLang(r.URL.Query().Get("lang")), "error_generic", nil)
 }
 
 func splitTags(s string) []string {
