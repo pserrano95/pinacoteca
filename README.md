@@ -20,9 +20,9 @@ go run ./cmd/pinacoteca serve --data ./data
 ```
 
 Open the printed link (it expires after 7 days), register a passkey, then
-use http://localhost:8080. Create an artist and upload a drawing. The artist
-slug is the directory under `data/artists/`; the member id is the directory
-under `data/members/`. Put them in a gallery or the home stays empty:
+use http://localhost:8080. Create an artist. The artist slug is the directory
+under `data/artists/`; the member id is the directory under `data/members/`.
+Put them in a gallery or the home stays empty:
 
 ```bash
 go run ./cmd/pinacoteca gallery create --data ./data --name "Grandparents"
@@ -30,7 +30,7 @@ go run ./cmd/pinacoteca gallery add-artist --data ./data --gallery grandparents 
 go run ./cmd/pinacoteca gallery add-member --data ./data --gallery grandparents --member MEMBER_ID --role owner
 ```
 
-Then try:
+Then upload a drawing and try:
 
 ```bash
 rm ./data/index.db

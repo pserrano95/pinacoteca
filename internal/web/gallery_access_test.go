@@ -215,6 +215,69 @@ func TestViewerCannotUploadContributorCan(t *testing.T) {
 	}
 }
 
+func TestViewerRoleCannotPostUpload(t *testing.T) {
+	srv, st, ix, _ := newTestServer(t)
+	birth := time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC)
+	artistA, err := st.CreateArtist("Ada", birth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artistB, err := st.CreateArtist("Bruno", birth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mixed := testMember(t, st, "Nia", "cred-nia-cross")
+	pure := testMember(t, st, "Pia", "cred-pia-pure")
+	g1, err := st.CreateGallery("G1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g2, err := st.CreateGallery("G2", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryArtist(g1.Slug, artistA.Slug); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryArtist(g2.Slug, artistB.Slug); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(g1.Slug, mixed.ID, store.RoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(g2.Slug, mixed.ID, store.RoleContributor); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(g1.Slug, pure.ID, store.RoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Rebuild(st); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	cross := memberClient(t, ix, ts.URL, mixed.ID)
+	status, body := postArtwork(t, cross, ts.URL, "ForAda", artistA.Slug)
+	if status != http.StatusNotFound {
+		t.Fatalf("viewer in G1 and contributor in G2, POST for A: got %d, want 404\n%s", status, body)
+	}
+	if titleOnDisk(t, st, "ForAda") {
+		t.Fatal("upload for the viewer-only artist was stored")
+	}
+
+	// Empty artist_slug: a named artist is also 404 from CanUploadArtist, so
+	// that POST stays green after the MemberCanUpload guard is removed.
+	viewer := memberClient(t, ix, ts.URL, pure.ID)
+	status, body = postArtwork(t, viewer, ts.URL, "Direct", "")
+	if status != http.StatusNotFound {
+		t.Fatalf("pure viewer direct POST: got %d, want 404 (200 means the !canAny guard in artworkNewPOST was removed)\n%s", status, body)
+	}
+	if titleOnDisk(t, st, "Direct") {
+		t.Fatal("pure viewer direct POST was stored")
+	}
+}
+
 func TestMemberWithoutGallerySeesEmptyHome(t *testing.T) {
 	w := newGalleryWorld(t)
 	c := memberClient(t, w.ix, w.ts.URL, w.outsiderID)
