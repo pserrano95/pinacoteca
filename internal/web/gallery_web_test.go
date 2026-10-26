@@ -37,6 +37,10 @@ func TestOwnerCreatesPaleSageGalleryAndAddsArtist(t *testing.T) {
 	if err := st.AddGalleryMember(home.Slug, viewer.ID, store.RoleViewer); err != nil {
 		t.Fatal(err)
 	}
+	// Ines already hangs in a gallery Ana owns; the manage list only offers those.
+	if err := st.AddGalleryArtist(home.Slug, existing.Slug); err != nil {
+		t.Fatal(err)
+	}
 	if err := ix.Rebuild(st); err != nil {
 		t.Fatal(err)
 	}
@@ -358,11 +362,19 @@ func TestArtistsNewRequiresGalleryOwner(t *testing.T) {
 	contributor := testMember(t, st, "Ciro", "cred-ciro-artists")
 	viewer := testMember(t, st, "Vera", "cred-vera-artists")
 	outsider := testMember(t, st, "Nora", "cred-nora-artists")
+	bea := testMember(t, st, "Bea", "cred-bea-artists")
 	home, err := st.CreateGallery("Sala", "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	otra, err := st.CreateGallery("Otra", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := st.AddGalleryMember(home.Slug, owner.ID, store.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(otra.Slug, bea.ID, store.RoleOwner); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.AddGalleryMember(home.Slug, contributor.ID, store.RoleContributor); err != nil {
@@ -389,6 +401,15 @@ func TestArtistsNewRequiresGalleryOwner(t *testing.T) {
 		if status != http.StatusNotFound {
 			t.Fatalf("POST /artists/new for %s: got %d, want 404 (a created artist means the owner check was removed)\n%s", id, status, body)
 		}
+	}
+	beaC := memberClient(t, ix, ts.URL, bea.ID)
+	status, _, body := postForm(t, beaC, ts.URL+"/artists/new", csrfOf(t, beaC, ts.URL+"/artists/new"), map[string]string{
+		"gallery":    home.Slug,
+		"name":       "Sneaky",
+		"birth_date": "2019-01-01",
+	})
+	if status != http.StatusNotFound {
+		t.Fatalf("owner of another gallery: got %d, want 404 (303 means artistNewPOST does not check ownership of that gallery)\n%s", status, body)
 	}
 	if got := len(mustArtists(t, st)); got != before {
 		t.Fatalf("artists on disk: got %d, want %d", got, before)
@@ -463,6 +484,104 @@ func TestOnlyOwnerOfThatGalleryCanIssueInvite(t *testing.T) {
 	}
 	if got := inviteFiles(t, st); got != before+1 {
 		t.Fatalf("invite files after owner: got %d, want %d", got, before+1)
+	}
+}
+
+func TestOnlyOwnerOfThatGalleryCanAddArtist(t *testing.T) {
+	srv, st, ix, _ := newTestServer(t)
+	ts := serve(t, srv)
+	ana := testMember(t, st, "Ana", "cred-ana-add")
+	bea := testMember(t, st, "Bea", "cred-bea-add")
+	birth := time.Date(2018, 3, 3, 0, 0, 0, 0, time.UTC)
+	nia, err := st.CreateArtist("Nia", birth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sala, err := st.CreateGallery("Sala", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otra, err := st.CreateGallery("Otra", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(sala.Slug, ana.ID, store.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(otra.Slug, bea.ID, store.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryArtist(otra.Slug, nia.Slug); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Rebuild(st); err != nil {
+		t.Fatal(err)
+	}
+
+	beaC := memberClient(t, ix, ts.URL, bea.ID)
+	status, _, body := postForm(t, beaC, ts.URL+"/galleries/"+sala.Slug+"/artists", csrfOf(t, beaC, ts.URL+"/"), map[string]string{
+		"artist_slug": nia.Slug,
+	})
+	if status != http.StatusNotFound {
+		t.Fatalf("owner of another gallery: got %d, want 404 (303 means galleryArtistPOST checks ownsAny instead of ownsGallery)\n%s", status, body)
+	}
+	g, err := st.LoadGallery(sala.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Artists) != 0 {
+		t.Fatalf("sala gained an artist: %+v", g.Artists)
+	}
+}
+
+func TestOwnerCannotAddArtistFromAnotherGallery(t *testing.T) {
+	srv, st, ix, _ := newTestServer(t)
+	ts := serve(t, srv)
+	ana := testMember(t, st, "Ana", "cred-ana-cross")
+	bea := testMember(t, st, "Bea", "cred-bea-cross")
+	birth := time.Date(2018, 3, 3, 0, 0, 0, 0, time.UTC)
+	mateo, err := st.CreateArtist("Mateo", birth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sala, err := st.CreateGallery("Sala", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otra, err := st.CreateGallery("Otra", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(sala.Slug, ana.ID, store.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(otra.Slug, bea.ID, store.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryArtist(otra.Slug, mateo.Slug); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Rebuild(st); err != nil {
+		t.Fatal(err)
+	}
+
+	anaC := memberClient(t, ix, ts.URL, ana.ID)
+	status, body := getStatus(t, anaC, ts.URL+"/galleries/"+sala.Slug)
+	if status != http.StatusOK || strings.Contains(body, "Mateo") {
+		t.Fatalf("manage lists an artist from another gallery: %d\n%s", status, body)
+	}
+	postStatus, _, postBody := postForm(t, anaC, ts.URL+"/galleries/"+sala.Slug+"/artists", csrfFrom(t, body), map[string]string{
+		"artist_slug": mateo.Slug,
+	})
+	if postStatus != http.StatusNotFound {
+		t.Fatalf("owner of A adding an artist that only lives in B: got %d, want 404\n%s", postStatus, postBody)
+	}
+	g, err := st.LoadGallery(sala.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Artists) != 0 {
+		t.Fatalf("sala gained an artist from otra: %+v", g.Artists)
 	}
 }
 

@@ -336,7 +336,7 @@ func (s *Server) galleryManageGET(w http.ResponseWriter, r *http.Request) {
 	if flash := r.URL.Query().Get("flash"); flash != "" {
 		data.Flash = data.T(flash)
 	}
-	data, err := s.fillManage(data, slug)
+	data, err := s.fillManage(data, m.ID, slug)
 	if err != nil {
 		data.Title = data.T("gallery_title")
 		data.Error = data.T("error_generic")
@@ -361,7 +361,7 @@ func (s *Server) galleryArtistPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := s.page(w, r)
-	data, err := s.fillManage(data, slug)
+	data, err := s.fillManage(data, m.ID, slug)
 	if err != nil {
 		data.Title = data.T("gallery_title")
 		data.Error = data.T("error_generic")
@@ -372,6 +372,17 @@ func (s *Server) galleryArtistPOST(w http.ResponseWriter, r *http.Request) {
 	if artist == "" {
 		data.Error = data.T("error_required")
 		s.render(w, "gallery_manage", data)
+		return
+	}
+	// An artist who only lives in a gallery this member does not own stays
+	// there. Sharing one artist across families is left for H2.
+	allowed, err := s.ownedArtistSet(m.ID)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	if !allowed[artist] {
+		http.NotFound(w, r)
 		return
 	}
 	if err := s.Store.AddGalleryArtist(slug, artist); err != nil {
@@ -410,7 +421,7 @@ func (s *Server) galleryInvitePOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := s.page(w, r)
-	data, err = s.fillManage(data, slug)
+	data, err = s.fillManage(data, m.ID, slug)
 	if err != nil {
 		data.Title = data.T("gallery_title")
 		data.Error = data.T("error_generic")
@@ -773,7 +784,7 @@ func (s *Server) ownedGalleryLinks(memberID string) ([]galleryLink, error) {
 	return out, nil
 }
 
-func (s *Server) fillManage(data pageData, slug string) (pageData, error) {
+func (s *Server) fillManage(data pageData, memberID, slug string) (pageData, error) {
 	g, err := s.Store.LoadGallery(slug)
 	if err != nil {
 		return data, err
@@ -782,15 +793,46 @@ func (s *Server) fillManage(data pageData, slug string) (pageData, error) {
 	if err != nil {
 		return data, err
 	}
+	allowed, err := s.ownedArtistSet(memberID)
+	if err != nil {
+		return data, err
+	}
+	var mine []store.Artist
+	for _, a := range all {
+		if allowed[a.Slug] {
+			mine = append(mine, a)
+		}
+	}
 	data.GallerySlug = g.Slug
 	data.GalleryName = g.Name
 	data.Title = g.Name
-	data.Artists = artistsNotIn(all, g.Artists)
+	data.Artists = artistsNotIn(mine, g.Artists)
 	data.InviteRoles = inviteRoleOptions(data.Lang)
 	data.Lead = i18n.T(data.Lang, "gallery_wall_chosen", map[string]string{
 		"colour": wallColourLabel(data.Lang, g.WallColour),
 	})
 	return data, nil
+}
+
+// ownedArtistSet is the artists already listed in a gallery this member owns.
+// A brand-new artist is created through /artists/new, which attaches them
+// to a gallery the member owns in the same request.
+func (s *Server) ownedArtistSet(memberID string) (map[string]bool, error) {
+	owned, err := s.Index.OwnedGalleries(memberID)
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, g := range owned {
+		full, err := s.Store.LoadGallery(g.Slug)
+		if err != nil {
+			return nil, err
+		}
+		for _, slug := range full.Artists {
+			set[slug] = true
+		}
+	}
+	return set, nil
 }
 
 func artistsNotIn(all []store.Artist, in []string) []store.Artist {
