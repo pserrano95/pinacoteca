@@ -6,11 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -96,6 +95,11 @@ func (s *Server) routeSpecs() []routeSpec {
 		{http.MethodPost, "/invite/{token}/begin", true, ""},
 		{http.MethodPost, "/invite/{token}/finish", true, ""},
 		{http.MethodGet, "/{$}", false, "redirect"},
+		{http.MethodGet, "/galleries/new", false, "redirect"},
+		{http.MethodPost, "/galleries/new", false, "unauthorized"},
+		{http.MethodGet, "/galleries/{gallery}", false, "redirect"},
+		{http.MethodPost, "/galleries/{gallery}/artists", false, "unauthorized"},
+		{http.MethodPost, "/galleries/{gallery}/invite", false, "unauthorized"},
 		{http.MethodGet, "/artists/new", false, "redirect"},
 		{http.MethodPost, "/artists/new", false, "unauthorized"},
 		{http.MethodGet, "/artworks/new", false, "redirect"},
@@ -362,13 +366,12 @@ func (s *Server) inviteFinish(w http.ResponseWriter, r *http.Request) {
 		Name:          inv.Name,
 		CreatedAt:     now,
 	}
-	if err := s.Store.SaveMember(member, []store.Passkey{passkeyFromCredential(cred, now)}); err != nil {
-		s.authFail(w, r, http.StatusInternalServerError)
-		return
-	}
-	if err := s.Store.MarkInviteUsed(token, now); err != nil {
-		_ = os.RemoveAll(filepath.Join(s.Store.MembersRoot(), member.ID))
-		s.authFail(w, r, http.StatusBadRequest)
+	if err := s.Store.RedeemInvite(token, member, []store.Passkey{passkeyFromCredential(cred, now)}, now); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrInviteRejected) {
+			status = http.StatusBadRequest
+		}
+		s.authFail(w, r, status)
 		return
 	}
 	if err := s.Index.RebuildKeepingSessions(s.Store); err != nil {

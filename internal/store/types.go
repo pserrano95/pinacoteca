@@ -131,9 +131,14 @@ type PasskeysFile struct {
 }
 
 // Invite is invites/<sha256(token)>.json. The token itself is never stored.
+// GallerySlug and Role are set for an invitation into one gallery. A CLI
+// invite leaves them empty: the first account still has no gallery role.
+// schema_version stays 1; both fields are optional, so an older file still loads.
 type Invite struct {
 	SchemaVersion int        `json:"schema_version"`
 	Name          string     `json:"name"`
+	GallerySlug   string     `json:"gallery_slug,omitempty"`
+	Role          string     `json:"role,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	ExpiresAt     time.Time  `json:"expires_at"`
 	UsedAt        *time.Time `json:"used_at,omitempty"`

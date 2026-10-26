@@ -20,7 +20,24 @@ var ErrInviteRejected = errors.New("invite rejected")
 
 // CreateInvite writes the hash of a new one-time token and returns the link.
 // The token is not stored. now is the clock, so tests can pin it.
+// The invite has no gallery: it is the bootstrap link the CLI prints.
 func (s *Store) CreateInvite(name, baseURL string, now time.Time) (string, error) {
+	return s.writeInvite(name, "", "", baseURL, now)
+}
+
+// CreateGalleryInvite is a one-time link into one gallery as contributor or
+// viewer. The role is written to gallery.json when the link is redeemed.
+func (s *Store) CreateGalleryInvite(name, gallerySlug, role, baseURL string, now time.Time) (string, error) {
+	if role != RoleContributor && role != RoleViewer {
+		return "", fmt.Errorf("invite role must be contributor or viewer")
+	}
+	if _, err := s.LoadGallery(gallerySlug); err != nil {
+		return "", fmt.Errorf("gallery: %w", err)
+	}
+	return s.writeInvite(name, gallerySlug, role, baseURL, now)
+}
+
+func (s *Store) writeInvite(name, gallerySlug, role, baseURL string, now time.Time) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", fmt.Errorf("invite name is required")
@@ -42,6 +59,8 @@ func (s *Store) CreateInvite(name, baseURL string, now time.Time) (string, error
 	inv := Invite{
 		SchemaVersion: SchemaVersion,
 		Name:          name,
+		GallerySlug:   gallerySlug,
+		Role:          role,
 		CreatedAt:     now,
 		ExpiresAt:     now.Add(InviteTTL),
 	}
@@ -52,6 +71,39 @@ func (s *Store) CreateInvite(name, baseURL string, now time.Time) (string, error
 		return "", err
 	}
 	return baseURL + "/invite/" + token, nil
+}
+
+// RedeemInvite saves the new member, writes their gallery role when the
+// invite names one, and marks the token used. A failure leaves neither the
+// member nor a half-applied role behind, and the token stays redeemable.
+func (s *Store) RedeemInvite(token string, member Member, passkeys []Passkey, now time.Time) error {
+	inv, err := s.LookupInvite(token, now)
+	if err != nil {
+		return err
+	}
+	if inv.GallerySlug != "" && inv.Role != RoleContributor && inv.Role != RoleViewer {
+		return ErrInviteRejected
+	}
+	if err := s.SaveMember(member, passkeys); err != nil {
+		return err
+	}
+	rollback := func() {
+		if inv.GallerySlug != "" {
+			_ = s.removeGalleryMember(inv.GallerySlug, member.ID)
+		}
+		_ = os.RemoveAll(filepath.Join(s.MembersRoot(), member.ID))
+	}
+	if inv.GallerySlug != "" {
+		if err := s.AddGalleryMember(inv.GallerySlug, member.ID, inv.Role); err != nil {
+			rollback()
+			return err
+		}
+	}
+	if err := s.MarkInviteUsed(token, now); err != nil {
+		rollback()
+		return err
+	}
+	return nil
 }
 
 // LookupInvite returns the invite when the token is still redeemable.
