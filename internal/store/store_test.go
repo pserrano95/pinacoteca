@@ -202,7 +202,7 @@ func TestInviteStoresOnlyTheHash(t *testing.T) {
 		t.Fatalf("file %s is not the token hash", entries[0].Name())
 	}
 	inv, err := st.LookupInvite(token, now.Add(7*24*time.Hour-time.Second))
-	if err != nil || inv.Name != "Ana" {
+	if err != nil || inv.Name != "Ana" || inv.GallerySlug != "" || inv.Role != "" {
 		t.Fatalf("lookup: %v %+v", err, inv)
 	}
 	if _, err := st.LookupInvite(token, now.Add(7*24*time.Hour)); err == nil {
@@ -216,5 +216,50 @@ func TestInviteStoresOnlyTheHash(t *testing.T) {
 	}
 	if _, err := st.LookupInvite("nope", now); err == nil {
 		t.Fatal("invented token accepted")
+	}
+}
+
+func TestGalleryInviteStoresRoleNotToken(t *testing.T) {
+	dir := t.TempDir()
+	st := store.New(dir)
+	if err := st.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+	g, err := st.CreateGallery("Familia", "pale-sage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	link, err := st.CreateGalleryInvite("Vera", g.Slug, store.RoleViewer, "http://localhost:8080", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := link[strings.LastIndex(link, "/")+1:]
+	entries, err := os.ReadDir(filepath.Join(dir, "invites"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("invites: %d", len(entries))
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "invites", entries[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), token) {
+		t.Fatal("invite file contains the token")
+	}
+	if entries[0].Name() != store.InviteHash(token)+".json" {
+		t.Fatalf("file %s is not the token hash", entries[0].Name())
+	}
+	inv, err := st.LookupInvite(token, now)
+	if err != nil || inv.Name != "Vera" || inv.GallerySlug != g.Slug || inv.Role != store.RoleViewer {
+		t.Fatalf("lookup: %v %+v", err, inv)
+	}
+	if _, err := st.CreateGalleryInvite("Ana", g.Slug, store.RoleOwner, "http://localhost:8080", now); err == nil {
+		t.Fatal("owner role invite accepted")
+	}
+	if _, err := st.CreateGalleryInvite("Ana", "missing", store.RoleViewer, "http://localhost:8080", now); err == nil {
+		t.Fatal("invite for a missing gallery accepted")
 	}
 }

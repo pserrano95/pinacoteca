@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
@@ -69,22 +70,27 @@ func (s *Server) Handler() http.Handler {
 		panic(err)
 	}
 	handlers := map[string]http.Handler{
-		"GET /static/":                            http.StripPrefix("/static/", http.FileServer(http.FS(static))),
-		"GET /login":                              http.HandlerFunc(s.loginGET),
-		"GET /invite/{token}":                     http.HandlerFunc(s.inviteGET),
-		"POST /login/begin":                       http.HandlerFunc(s.loginBegin),
-		"POST /login/finish":                      http.HandlerFunc(s.loginFinish),
-		"POST /invite/{token}/begin":              http.HandlerFunc(s.inviteBegin),
-		"POST /invite/{token}/finish":             http.HandlerFunc(s.inviteFinish),
-		"GET /{$}":                                http.HandlerFunc(s.gallery),
-		"GET /artists/new":                        http.HandlerFunc(s.artistNewGET),
-		"POST /artists/new":                       http.HandlerFunc(s.artistNewPOST),
-		"GET /artworks/new":                       http.HandlerFunc(s.artworkNewGET),
-		"POST /artworks/new":                      http.HandlerFunc(s.artworkNewPOST),
-		"GET /artists/{artist}/artworks/{folder}": http.HandlerFunc(s.artworkGET),
+		"GET /static/":                                     http.StripPrefix("/static/", http.FileServer(http.FS(static))),
+		"GET /login":                                       http.HandlerFunc(s.loginGET),
+		"GET /invite/{token}":                              http.HandlerFunc(s.inviteGET),
+		"POST /login/begin":                                http.HandlerFunc(s.loginBegin),
+		"POST /login/finish":                               http.HandlerFunc(s.loginFinish),
+		"POST /invite/{token}/begin":                       http.HandlerFunc(s.inviteBegin),
+		"POST /invite/{token}/finish":                      http.HandlerFunc(s.inviteFinish),
+		"GET /{$}":                                         http.HandlerFunc(s.gallery),
+		"GET /galleries/new":                               http.HandlerFunc(s.galleryNewGET),
+		"POST /galleries/new":                              http.HandlerFunc(s.galleryNewPOST),
+		"GET /galleries/{gallery}":                         http.HandlerFunc(s.galleryManageGET),
+		"POST /galleries/{gallery}/artists":                http.HandlerFunc(s.galleryArtistPOST),
+		"POST /galleries/{gallery}/invite":                 http.HandlerFunc(s.galleryInvitePOST),
+		"GET /artists/new":                                 http.HandlerFunc(s.artistNewGET),
+		"POST /artists/new":                                http.HandlerFunc(s.artistNewPOST),
+		"GET /artworks/new":                                http.HandlerFunc(s.artworkNewGET),
+		"POST /artworks/new":                               http.HandlerFunc(s.artworkNewPOST),
+		"GET /artists/{artist}/artworks/{folder}":          http.HandlerFunc(s.artworkGET),
 		"GET /artists/{artist}/artworks/{folder}/original": http.HandlerFunc(s.serveOriginal),
 		"GET /artists/{artist}/artworks/{folder}/thumb":    http.HandlerFunc(s.serveThumb),
-		"POST /logout": http.HandlerFunc(s.logout),
+		"POST /logout":                                     http.HandlerFunc(s.logout),
 	}
 	for _, rt := range s.routeSpecs() {
 		key := rt.Method + " " + rt.Pattern
@@ -104,24 +110,42 @@ func (s *Server) Handler() http.Handler {
 }
 
 type pageData struct {
-	Lang           string
-	Title          string
-	Flash          string
-	Error          string
-	T              func(string) string
-	AgeLabel       func(int) string
-	Artworks       []artworkView
-	Artists        []store.Artist
-	SelectedArtist string
-	Artwork        *artworkView
-	ByLine         string
-	AgeLine        string
-	CSRF           string
-	LoggedIn       bool
-	Lead           string
-	AuthMode       string
-	BeginURL       string
-	FinishURL      string
+	Lang            string
+	Title           string
+	Flash           string
+	Error           string
+	T               func(string) string
+	AgeLabel        func(int) string
+	Artworks        []artworkView
+	Artists         []store.Artist
+	SelectedArtist  string
+	SelectedGallery string
+	Artwork         *artworkView
+	ByLine          string
+	AgeLine         string
+	CSRF            string
+	LoggedIn        bool
+	IsOwner         bool
+	OwnedGalleries  []galleryLink
+	GalleryName     string
+	GallerySlug     string
+	WallColours     []choice
+	InviteRoles     []choice
+	InviteURL       string
+	Lead            string
+	AuthMode        string
+	BeginURL        string
+	FinishURL       string
+}
+
+type galleryLink struct {
+	Slug string
+	Name string
+}
+
+type choice struct {
+	Value string
+	Label string
 }
 
 type artworkView struct {
@@ -153,8 +177,12 @@ func (s *Server) base(lang string) pageData {
 func (s *Server) page(w http.ResponseWriter, r *http.Request) pageData {
 	data := s.base(langFrom(r))
 	data.CSRF = s.ensureCSRF(w, r)
-	if _, ok := s.sessionMember(r); ok {
+	if m, ok := s.sessionMember(r); ok {
 		data.LoggedIn = true
+		owns, err := s.Index.MemberOwnsAny(m.ID)
+		if err == nil && owns {
+			data.IsOwner = true
+		}
 	}
 	return data
 }
@@ -225,16 +253,241 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 			HasThumb:    fileExists(thumb),
 		})
 	}
+	if data.IsOwner {
+		owned, err := s.ownedGalleryLinks(m.ID)
+		if err != nil {
+			data.Error = data.T("error_generic")
+		} else {
+			data.OwnedGalleries = owned
+		}
+	}
 	s.render(w, "gallery", data)
 }
 
+func (s *Server) galleryNewGET(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.ownsAny(w, r, m.ID) {
+		return
+	}
+	data := s.page(w, r)
+	data.Title = data.T("gallery_new_title")
+	data.WallColours = wallColourOptions(data.Lang)
+	s.render(w, "gallery_new", data)
+}
+
+func (s *Server) galleryNewPOST(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.ownsAny(w, r, m.ID) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	data := s.page(w, r)
+	data.Title = data.T("gallery_new_title")
+	data.WallColours = wallColourOptions(data.Lang)
+	name := strings.TrimSpace(r.FormValue("name"))
+	colour := strings.TrimSpace(r.FormValue("wall_colour"))
+	if name == "" || !store.ValidWallColour(colour) {
+		data.Error = data.T("error_required")
+		s.render(w, "gallery_new", data)
+		return
+	}
+	g, err := s.Store.CreateGallery(name, colour)
+	if err != nil {
+		data.Error = data.T("error_generic")
+		s.render(w, "gallery_new", data)
+		return
+	}
+	if err := s.Store.AddGalleryMember(g.Slug, m.ID, store.RoleOwner); err != nil {
+		_ = os.RemoveAll(filepath.Join(s.Store.GalleriesRoot(), g.Slug))
+		data.Error = data.T("error_generic")
+		s.render(w, "gallery_new", data)
+		return
+	}
+	if err := s.Index.RebuildKeepingSessions(s.Store); err != nil {
+		data.Error = data.T("error_generic")
+		s.render(w, "gallery_new", data)
+		return
+	}
+	http.Redirect(w, r, "/galleries/"+g.Slug+"?lang="+data.Lang+"&flash=gallery_created", http.StatusSeeOther)
+}
+
+func (s *Server) galleryManageGET(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	slug := r.PathValue("gallery")
+	if !s.ownsGallery(w, r, m.ID, slug) {
+		return
+	}
+	data := s.page(w, r)
+	if flash := r.URL.Query().Get("flash"); flash != "" {
+		data.Flash = data.T(flash)
+	}
+	data, err := s.fillManage(data, m.ID, slug)
+	if err != nil {
+		data.Title = data.T("gallery_title")
+		data.Error = data.T("error_generic")
+		s.render(w, "gallery_manage", data)
+		return
+	}
+	s.render(w, "gallery_manage", data)
+}
+
+func (s *Server) galleryArtistPOST(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	slug := r.PathValue("gallery")
+	if !s.ownsGallery(w, r, m.ID, slug) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	data := s.page(w, r)
+	data, err := s.fillManage(data, m.ID, slug)
+	if err != nil {
+		data.Title = data.T("gallery_title")
+		data.Error = data.T("error_generic")
+		s.render(w, "gallery_manage", data)
+		return
+	}
+	artist := strings.TrimSpace(r.FormValue("artist_slug"))
+	if artist == "" {
+		data.Error = data.T("error_required")
+		s.render(w, "gallery_manage", data)
+		return
+	}
+	// An artist who only lives in a gallery this member does not own stays
+	// there. Sharing one artist across families is left for H2.
+	allowed, err := s.ownedArtistSet(m.ID)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	if !allowed[artist] {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.Store.AddGalleryArtist(slug, artist); err != nil {
+		data.Error = data.T("error_generic")
+		s.render(w, "gallery_manage", data)
+		return
+	}
+	if err := s.Index.RebuildKeepingSessions(s.Store); err != nil {
+		data.Error = data.T("error_generic")
+		s.render(w, "gallery_manage", data)
+		return
+	}
+	http.Redirect(w, r, "/galleries/"+slug+"?lang="+data.Lang+"&flash=gallery_artist_added", http.StatusSeeOther)
+}
+
+// galleryInvitePOST issues a one-time link. The owner check below is what
+// TestOnlyOwnerOfThatGalleryCanIssueInvite fails on when it is removed.
+func (s *Server) galleryInvitePOST(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	slug := r.PathValue("gallery")
+	owns, err := s.Index.MemberOwnsGallery(m.ID, slug)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	if !owns {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	data := s.page(w, r)
+	data, err = s.fillManage(data, m.ID, slug)
+	if err != nil {
+		data.Title = data.T("gallery_title")
+		data.Error = data.T("error_generic")
+		s.render(w, "gallery_manage", data)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	role := r.FormValue("role")
+	if name == "" {
+		data.Error = data.T("error_required")
+		s.render(w, "gallery_manage", data)
+		return
+	}
+	if role != store.RoleContributor && role != store.RoleViewer {
+		data.Error = data.T("error_invite_role")
+		s.render(w, "gallery_manage", data)
+		return
+	}
+	link, err := s.Store.CreateGalleryInvite(name, slug, role, s.cfg.Origin, time.Now())
+	if err != nil {
+		data.Error = data.T("error_generic")
+		s.render(w, "gallery_manage", data)
+		return
+	}
+	data.Title = data.T("invite_link_title")
+	data.InviteURL = link
+	s.render(w, "invite_link", data)
+}
+
 func (s *Server) artistNewGET(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.ownsAny(w, r, m.ID) {
+		return
+	}
 	data := s.page(w, r)
 	data.Title = data.T("artist_new_title")
+	owned, err := s.ownedGalleryLinks(m.ID)
+	if err != nil {
+		data.Error = data.T("error_generic")
+		s.render(w, "artist_new", data)
+		return
+	}
+	data.OwnedGalleries = owned
+	want := r.URL.Query().Get("gallery")
+	if want != "" {
+		if !s.ownsGallery(w, r, m.ID, want) {
+			return
+		}
+		data.SelectedGallery = want
+	}
 	s.render(w, "artist_new", data)
 }
 
 func (s *Server) artistNewPOST(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.ownsAny(w, r, m.ID) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
@@ -242,6 +495,29 @@ func (s *Server) artistNewPOST(w http.ResponseWriter, r *http.Request) {
 	data := s.page(w, r)
 	lang := data.Lang
 	data.Title = data.T("artist_new_title")
+	owned, err := s.ownedGalleryLinks(m.ID)
+	if err != nil {
+		data.Error = data.T("error_generic")
+		s.render(w, "artist_new", data)
+		return
+	}
+	data.OwnedGalleries = owned
+	gallerySlug := strings.TrimSpace(r.FormValue("gallery"))
+	if gallerySlug == "" {
+		data.Error = data.T("error_required")
+		s.render(w, "artist_new", data)
+		return
+	}
+	owns, err := s.Index.MemberOwnsGallery(m.ID, gallerySlug)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	if !owns {
+		http.NotFound(w, r)
+		return
+	}
+	data.SelectedGallery = gallerySlug
 	name := r.FormValue("name")
 	birth, err := store.ParseDate(r.FormValue("birth_date"))
 	if err != nil || strings.TrimSpace(name) == "" {
@@ -249,7 +525,14 @@ func (s *Server) artistNewPOST(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "artist_new", data)
 		return
 	}
-	if _, err := s.Store.CreateArtist(name, birth.Time); err != nil {
+	artist, err := s.Store.CreateArtist(name, birth.Time)
+	if err != nil {
+		data.Error = data.T("error_generic")
+		s.render(w, "artist_new", data)
+		return
+	}
+	if err := s.Store.AddGalleryArtist(gallerySlug, artist.Slug); err != nil {
+		_ = os.RemoveAll(filepath.Join(s.Store.ArtistsRoot(), artist.Slug))
 		data.Error = data.T("error_generic")
 		s.render(w, "artist_new", data)
 		return
@@ -461,6 +744,138 @@ func (s *Server) hiddenArtist(w http.ResponseWriter, r *http.Request, artistSlug
 		return true
 	}
 	return false
+}
+
+func (s *Server) ownsAny(w http.ResponseWriter, r *http.Request, memberID string) bool {
+	owns, err := s.Index.MemberOwnsAny(memberID)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return false
+	}
+	if !owns {
+		http.NotFound(w, r)
+		return false
+	}
+	return true
+}
+
+func (s *Server) ownsGallery(w http.ResponseWriter, r *http.Request, memberID, gallerySlug string) bool {
+	owns, err := s.Index.MemberOwnsGallery(memberID, gallerySlug)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return false
+	}
+	if !owns {
+		http.NotFound(w, r)
+		return false
+	}
+	return true
+}
+
+func (s *Server) ownedGalleryLinks(memberID string) ([]galleryLink, error) {
+	rows, err := s.Index.OwnedGalleries(memberID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]galleryLink, 0, len(rows))
+	for _, g := range rows {
+		out = append(out, galleryLink{Slug: g.Slug, Name: g.Name})
+	}
+	return out, nil
+}
+
+func (s *Server) fillManage(data pageData, memberID, slug string) (pageData, error) {
+	g, err := s.Store.LoadGallery(slug)
+	if err != nil {
+		return data, err
+	}
+	all, err := s.Store.ListArtists()
+	if err != nil {
+		return data, err
+	}
+	allowed, err := s.ownedArtistSet(memberID)
+	if err != nil {
+		return data, err
+	}
+	var mine []store.Artist
+	for _, a := range all {
+		if allowed[a.Slug] {
+			mine = append(mine, a)
+		}
+	}
+	data.GallerySlug = g.Slug
+	data.GalleryName = g.Name
+	data.Title = g.Name
+	data.Artists = artistsNotIn(mine, g.Artists)
+	data.InviteRoles = inviteRoleOptions(data.Lang)
+	data.Lead = i18n.T(data.Lang, "gallery_wall_chosen", map[string]string{
+		"colour": wallColourLabel(data.Lang, g.WallColour),
+	})
+	return data, nil
+}
+
+// ownedArtistSet is the artists already listed in a gallery this member owns.
+// A brand-new artist is created through /artists/new, which attaches them
+// to a gallery the member owns in the same request.
+func (s *Server) ownedArtistSet(memberID string) (map[string]bool, error) {
+	owned, err := s.Index.OwnedGalleries(memberID)
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, g := range owned {
+		full, err := s.Store.LoadGallery(g.Slug)
+		if err != nil {
+			return nil, err
+		}
+		for _, slug := range full.Artists {
+			set[slug] = true
+		}
+	}
+	return set, nil
+}
+
+func artistsNotIn(all []store.Artist, in []string) []store.Artist {
+	have := map[string]bool{}
+	for _, slug := range in {
+		have[slug] = true
+	}
+	var out []store.Artist
+	for _, a := range all {
+		if !have[a.Slug] {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func wallColourOptions(lang string) []choice {
+	out := make([]choice, 0, len(store.WallColours))
+	for _, colour := range store.WallColours {
+		out = append(out, choice{Value: colour, Label: wallColourLabel(lang, colour)})
+	}
+	return out
+}
+
+func wallColourLabel(lang, colour string) string {
+	key := map[string]string{
+		"off-white":  "wall_off_white",
+		"warm-stone": "wall_warm_stone",
+		"pale-sage":  "wall_pale_sage",
+		"dusty-blue": "wall_dusty_blue",
+		"soft-sand":  "wall_soft_sand",
+	}[colour]
+	if key == "" {
+		return colour
+	}
+	return i18n.T(lang, key, nil)
+}
+
+func inviteRoleOptions(lang string) []choice {
+	return []choice{
+		{Value: store.RoleContributor, Label: i18n.T(lang, "role_contributor", nil)},
+		{Value: store.RoleViewer, Label: i18n.T(lang, "role_viewer", nil)},
+	}
 }
 
 func (s *Server) uploadableArtists(memberID string) ([]store.Artist, error) {

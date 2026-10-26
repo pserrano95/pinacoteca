@@ -808,6 +808,55 @@ WHERE gm.member_id = ? AND ga.artist_slug = ? AND gm.role IN (?, ?)`,
 	return n > 0, nil
 }
 
+// MemberOwnsAny reports whether the member is owner of at least one gallery.
+func (ix *Index) MemberOwnsAny(memberID string) (bool, error) {
+	var n int
+	err := ix.db.QueryRow(
+		`SELECT COUNT(*) FROM gallery_members WHERE member_id = ? AND role = ?`,
+		memberID, store.RoleOwner,
+	).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// MemberOwnsGallery reports whether the member is owner of that gallery.
+func (ix *Index) MemberOwnsGallery(memberID, gallerySlug string) (bool, error) {
+	var n int
+	err := ix.db.QueryRow(
+		`SELECT COUNT(*) FROM gallery_members WHERE member_id = ? AND gallery_slug = ? AND role = ?`,
+		memberID, gallerySlug, store.RoleOwner,
+	).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// OwnedGalleries lists the galleries this member owns, without their child rows.
+func (ix *Index) OwnedGalleries(memberID string) ([]GalleryRow, error) {
+	rows, err := ix.db.Query(`
+SELECT g.slug, g.name, g.wall_colour, g.schema_version
+FROM galleries g
+JOIN gallery_members gm ON gm.gallery_slug = g.slug
+WHERE gm.member_id = ? AND gm.role = ?
+ORDER BY g.slug`, memberID, store.RoleOwner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GalleryRow
+	for rows.Next() {
+		var g GalleryRow
+		if err := rows.Scan(&g.Slug, &g.Name, &g.WallColour, &g.SchemaVersion); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
 // MemberCanUpload reports whether the member is owner or contributor of any gallery.
 func (ix *Index) MemberCanUpload(memberID string) (bool, error) {
 	var n int

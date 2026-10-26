@@ -439,7 +439,7 @@ func concretePath(pattern string) string {
 	if pattern == "/{$}" {
 		return "/"
 	}
-	r := strings.NewReplacer("{artist}", "someone", "{folder}", "somefolder", "{token}", "sometoken")
+	r := strings.NewReplacer("{artist}", "someone", "{folder}", "somefolder", "{token}", "sometoken", "{gallery}", "somegallery")
 	return r.Replace(pattern)
 }
 

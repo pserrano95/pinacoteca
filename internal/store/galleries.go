@@ -108,6 +108,27 @@ func (s *Store) AddGalleryMember(gallerySlug, memberID, role string) error {
 	return writeJSON(s.galleryPath(gallerySlug), g)
 }
 
+// removeGalleryMember drops one member row. RedeemInvite uses it when a
+// redemption cannot be finished, so gallery.json does not keep a role for a
+// member that was never created.
+func (s *Store) removeGalleryMember(gallerySlug, memberID string) error {
+	if err := safeSlug(gallerySlug); err != nil {
+		return err
+	}
+	g, err := s.LoadGallery(gallerySlug)
+	if err != nil {
+		return err
+	}
+	next := make([]GalleryMember, 0, len(g.Members))
+	for _, m := range g.Members {
+		if m.ID != memberID {
+			next = append(next, m)
+		}
+	}
+	g.Members = next
+	return writeJSON(s.galleryPath(gallerySlug), g)
+}
+
 // LoadGallery reads one gallery. The directory name is the slug; a mismatch is an error.
 func (s *Store) LoadGallery(gallerySlug string) (*Gallery, error) {
 	if err := safeSlug(gallerySlug); err != nil {
