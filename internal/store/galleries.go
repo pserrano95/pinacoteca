@@ -7,9 +7,32 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/pserrano95/pinacoteca/internal/slug"
 )
+
+var (
+	galleryLocksMu sync.Mutex
+	galleryLocks   = map[string]*sync.Mutex{}
+)
+
+func lockGallery(path string) func() {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	} else {
+		path = filepath.Clean(path)
+	}
+	galleryLocksMu.Lock()
+	mu, ok := galleryLocks[path]
+	if !ok {
+		mu = &sync.Mutex{}
+		galleryLocks[path] = mu
+	}
+	galleryLocksMu.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
 
 func (s *Store) galleryPath(gallerySlug string) string {
 	return filepath.Join(s.GalleriesRoot(), gallerySlug, GalleryFile)
@@ -30,6 +53,9 @@ func (s *Store) CreateGallery(name, wallColour string) (*Gallery, error) {
 		return nil, fmt.Errorf("unknown wall colour %q", wallColour)
 	}
 	base := slug.Make(name)
+	unlock := lockGallery(s.galleryPath(base))
+	defer unlock()
+
 	gallerySlug := base
 	for i := 2; ; i++ {
 		dir := filepath.Join(s.GalleriesRoot(), gallerySlug)
@@ -68,6 +94,9 @@ func (s *Store) AddGalleryArtist(gallerySlug, artistSlug string) error {
 	if _, err := s.LoadArtist(artistSlug); err != nil {
 		return fmt.Errorf("artist: %w", err)
 	}
+	unlock := lockGallery(s.galleryPath(gallerySlug))
+	defer unlock()
+
 	g, err := s.LoadGallery(gallerySlug)
 	if err != nil {
 		return err
@@ -95,6 +124,9 @@ func (s *Store) AddGalleryMember(gallerySlug, memberID, role string) error {
 	if _, err := s.LoadMemberRecord(memberID); err != nil {
 		return fmt.Errorf("member: %w", err)
 	}
+	unlock := lockGallery(s.galleryPath(gallerySlug))
+	defer unlock()
+
 	g, err := s.LoadGallery(gallerySlug)
 	if err != nil {
 		return err
@@ -115,6 +147,9 @@ func (s *Store) removeGalleryMember(gallerySlug, memberID string) error {
 	if err := safeSlug(gallerySlug); err != nil {
 		return err
 	}
+	unlock := lockGallery(s.galleryPath(gallerySlug))
+	defer unlock()
+
 	g, err := s.LoadGallery(gallerySlug)
 	if err != nil {
 		return err
