@@ -286,6 +286,144 @@ func TestGalleryConcurrency_CreateGallerySameName(t *testing.T) {
 	assertNoTempsInGalleries(t, st1.GalleriesRoot())
 }
 
+func TestGalleryConcurrency_ReadWhileWriting(t *testing.T) {
+	dir := t.TempDir()
+	st1 := New(dir)
+	st2 := New(dir)
+	if err := st1.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+
+	gallery, err := st1.CreateGallery("Lecturas", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 50
+	artists := make([]string, n)
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("Artist %02d", i)
+		a, err := st1.CreateArtist(name, time.Date(2015, 1, 1, 0, 0, 0, 0, time.UTC))
+		if err != nil {
+			t.Fatal(err)
+		}
+		artists[i] = a.Slug
+	}
+
+	members := make([]string, n)
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("Member %02d", i)
+		m, err := st1.CreateMember(name, []Passkey{{
+			ID:        fmt.Sprintf("cred-read-%02d", i),
+			PublicKey: fmt.Sprintf("pk-read-%02d", i),
+			CreatedAt: time.Now().UTC(),
+		}}, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		members[i] = m.ID
+	}
+
+	var writeWg sync.WaitGroup
+	var readWg sync.WaitGroup
+	writeErrCh := make(chan error, 2*n)
+	readErrCh := make(chan error, 100)
+	stopReaders := make(chan struct{})
+	start := make(chan struct{})
+
+	const numReaders = 8
+	for r := 0; r < numReaders; r++ {
+		readWg.Add(1)
+		st := st1
+		if r%2 == 1 {
+			st = st2
+		}
+		go func() {
+			defer readWg.Done()
+			<-start
+			for {
+				select {
+				case <-stopReaders:
+					return
+				default:
+					g, err := st.LoadGallery(gallery.Slug)
+					if err != nil {
+						readErrCh <- fmt.Errorf("LoadGallery: %w", err)
+						return
+					}
+					if g.Slug != gallery.Slug {
+						readErrCh <- fmt.Errorf("unexpected gallery slug: %s", g.Slug)
+						return
+					}
+					galleries, err := st.ListGalleries()
+					if err != nil {
+						readErrCh <- fmt.Errorf("ListGalleries: %w", err)
+						return
+					}
+					if len(galleries) == 0 {
+						readErrCh <- fmt.Errorf("ListGalleries returned empty list")
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < n; i++ {
+		i := i
+		writeWg.Add(2)
+		go func() {
+			defer writeWg.Done()
+			<-start
+			st := st1
+			if i%2 == 1 {
+				st = st2
+			}
+			if err := st.AddGalleryArtist(gallery.Slug, artists[i]); err != nil {
+				writeErrCh <- fmt.Errorf("add artist %s: %w", artists[i], err)
+			}
+		}()
+		go func() {
+			defer writeWg.Done()
+			<-start
+			st := st1
+			if i%2 == 1 {
+				st = st2
+			}
+			if err := st.AddGalleryMember(gallery.Slug, members[i], RoleContributor); err != nil {
+				writeErrCh <- fmt.Errorf("add member %s: %w", members[i], err)
+			}
+		}()
+	}
+
+	close(start)
+	writeWg.Wait()
+	close(stopReaders)
+	readWg.Wait()
+	close(writeErrCh)
+	close(readErrCh)
+
+	for err := range writeErrCh {
+		t.Fatal(err)
+	}
+	for err := range readErrCh {
+		t.Fatal(err)
+	}
+
+	loaded, err := st1.LoadGallery(gallery.Slug)
+	if err != nil {
+		t.Fatalf("LoadGallery failed: %v", err)
+	}
+	if len(loaded.Artists) != n {
+		t.Fatalf("expected %d artists, got %d", n, len(loaded.Artists))
+	}
+	if len(loaded.Members) != n {
+		t.Fatalf("expected %d members, got %d", n, len(loaded.Members))
+	}
+
+	assertNoTempsInGalleries(t, st1.GalleriesRoot())
+}
+
 func assertNoTempsInGalleries(t *testing.T, galleriesRoot string) {
 	t.Helper()
 	err := filepath.Walk(galleriesRoot, func(path string, info os.FileInfo, err error) error {
