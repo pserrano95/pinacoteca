@@ -52,18 +52,24 @@ func (s *Store) CreateGallery(name, wallColour string) (*Gallery, error) {
 	if !ValidWallColour(wallColour) {
 		return nil, fmt.Errorf("unknown wall colour %q", wallColour)
 	}
+	if err := os.MkdirAll(s.GalleriesRoot(), 0o755); err != nil {
+		return nil, err
+	}
 	base := slug.Make(name)
-	unlock := lockGallery(s.galleryPath(base))
-	defer unlock()
-
 	gallerySlug := base
+	var dir string
 	for i := 2; ; i++ {
-		dir := filepath.Join(s.GalleriesRoot(), gallerySlug)
-		if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		dir = filepath.Join(s.GalleriesRoot(), gallerySlug)
+		if err := os.Mkdir(dir, 0o755); err == nil {
 			break
+		} else if !errors.Is(err, os.ErrExist) {
+			return nil, err
 		}
 		gallerySlug = fmt.Sprintf("%s-%d", base, i)
 	}
+	unlock := lockGallery(s.galleryPath(gallerySlug))
+	defer unlock()
+
 	g := &Gallery{
 		SchemaVersion: SchemaVersion,
 		Name:          name,
@@ -71,10 +77,6 @@ func (s *Store) CreateGallery(name, wallColour string) (*Gallery, error) {
 		WallColour:    wallColour,
 		Artists:       []string{},
 		Members:       []GalleryMember{},
-	}
-	dir := filepath.Join(s.GalleriesRoot(), gallerySlug)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
 	}
 	if err := writeJSON(s.galleryPath(gallerySlug), g); err != nil {
 		_ = os.RemoveAll(dir)

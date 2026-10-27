@@ -286,6 +286,69 @@ func TestGalleryConcurrency_CreateGallerySameName(t *testing.T) {
 	assertNoTempsInGalleries(t, st1.GalleriesRoot())
 }
 
+func TestGalleryConcurrency_CreateGallerySuffixCollision(t *testing.T) {
+	for iter := 0; iter < 100; iter++ {
+		dir := t.TempDir()
+		st1 := New(dir)
+		st2 := New(dir)
+		if err := st1.EnsureLayout(); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := st1.CreateGallery("Abuelos", ""); err != nil {
+			t.Fatal(err)
+		}
+
+		var wg sync.WaitGroup
+		var g1, g2 *Gallery
+		var err1, err2 error
+		start := make(chan struct{})
+
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			g1, err1 = st1.CreateGallery("Abuelos", "")
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			g2, err2 = st2.CreateGallery("Abuelos 2", "")
+		}()
+
+		close(start)
+		wg.Wait()
+
+		if err1 != nil {
+			t.Fatalf("iter %d: create gallery Abuelos: %v", iter, err1)
+		}
+		if err2 != nil {
+			t.Fatalf("iter %d: create gallery Abuelos 2: %v", iter, err2)
+		}
+		if g1.Slug == g2.Slug {
+			t.Fatalf("iter %d: collision on slug %q (both returned same slug)", iter, g1.Slug)
+		}
+
+		loaded1, err := st1.LoadGallery(g1.Slug)
+		if err != nil {
+			t.Fatalf("iter %d: LoadGallery(%q): %v", iter, g1.Slug, err)
+		}
+		if loaded1.Name != "Abuelos" {
+			t.Fatalf("iter %d: expected name Abuelos for %s, got %q", iter, g1.Slug, loaded1.Name)
+		}
+
+		loaded2, err := st2.LoadGallery(g2.Slug)
+		if err != nil {
+			t.Fatalf("iter %d: LoadGallery(%q): %v", iter, g2.Slug, err)
+		}
+		if loaded2.Name != "Abuelos 2" {
+			t.Fatalf("iter %d: expected name Abuelos 2 for %s, got %q", iter, g2.Slug, loaded2.Name)
+		}
+
+		assertNoTempsInGalleries(t, st1.GalleriesRoot())
+	}
+}
+
 func TestGalleryConcurrency_ReadWhileWriting(t *testing.T) {
 	dir := t.TempDir()
 	st1 := New(dir)
