@@ -35,6 +35,7 @@ Then upload a drawing and try:
 ```bash
 rm ./data/index.db
 go run ./cmd/pinacoteca reindex --data ./data
+go run ./cmd/pinacoteca export --data ./data --artist ARTIST_SLUG --out ./export-artist
 ```
 
 ## Check

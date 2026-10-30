@@ -79,5 +79,13 @@
   "gallery_invite_submit": "Crear enlace de invitación",
   "invite_link_title": "Enlace de invitación",
   "invite_link_once": "Este enlace se enseña una sola vez. Cópialo ahora; no se volverá a mostrar.",
-  "error_invite_role": "Elige un rol: puede subir o solo mira."
+  "error_invite_role": "Elige un rol: puede subir o solo mira.",
+  "export_title": "Obras de {name}",
+  "export_empty": "No hay obras de este artista.",
+  "export_date": "Fecha",
+  "export_age": "Edad",
+  "export_age_years": "Edad {age}",
+  "export_description": "Descripción",
+  "export_tags": "Etiquetas",
+  "export_original": "Original"
 }

@@ -79,5 +79,13 @@
   "gallery_invite_submit": "Create invite link",
   "invite_link_title": "Invite link",
   "invite_link_once": "This link is shown only once. Copy it now; it cannot be displayed again.",
-  "error_invite_role": "Choose contributor or viewer."
+  "error_invite_role": "Choose contributor or viewer.",
+  "export_title": "Artworks by {name}",
+  "export_empty": "No artworks for this artist.",
+  "export_date": "Date",
+  "export_age": "Age",
+  "export_age_years": "Age {age}",
+  "export_description": "Description",
+  "export_tags": "Tags",
+  "export_original": "Original"
 }
