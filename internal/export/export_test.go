@@ -238,7 +238,7 @@ func TestExportArtist(t *testing.T) {
 	}
 
 	// Age for each artwork: 5, 6, 7
-	for _, ageStr := range []string{"5", "6", "7"} {
+	for _, ageStr := range []string{"Edad 5", "Edad 6", "Edad 7"} {
 		if !strings.Contains(htmlES, ageStr) {
 			t.Fatalf("index.html missing age %s", ageStr)
 		}
