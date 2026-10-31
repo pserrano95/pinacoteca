@@ -339,3 +339,37 @@ func TestExportArtist(t *testing.T) {
 		t.Fatalf("outDir created for nonexistent slug: %v", err)
 	}
 }
+
+func TestExportArtist_InvalidSlug(t *testing.T) {
+	dataDir := t.TempDir()
+	st := store.New(dataDir)
+	if err := st.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+
+	ada, err := st.CreateArtist("Ada", time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = st.CreateArtwork(store.CreateArtworkInput{
+		ArtistSlug: ada.Slug,
+		Title:      "Drawing",
+		Date:       time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+		ImageBytes: pngBytes(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, invalidSlug := range []string{"ada/", "../artists/ada"} {
+		outDir := filepath.Join(t.TempDir(), "export-invalid")
+		err := export.Artist(st, invalidSlug, outDir, "en")
+		if err == nil {
+			t.Fatalf("expected error for invalid slug %q, got nil", invalidSlug)
+		}
+		if _, err := os.Stat(outDir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("outDir created for invalid slug %q: %v", invalidSlug, err)
+		}
+	}
+}

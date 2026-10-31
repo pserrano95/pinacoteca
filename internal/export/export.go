@@ -26,6 +26,9 @@ func Artist(st *store.Store, artistSlug, outDir, lang string) error {
 	if artistSlug == "" {
 		return fmt.Errorf("artist slug is required")
 	}
+	if filepath.Base(artistSlug) != artistSlug || artistSlug == "." || artistSlug == ".." || strings.ContainsAny(artistSlug, "/\\") {
+		return fmt.Errorf("invalid artist slug %q", artistSlug)
+	}
 	outDir = strings.TrimSpace(outDir)
 	if outDir == "" {
 		return fmt.Errorf("output directory is required")
