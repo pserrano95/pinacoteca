@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pserrano95/pinacoteca/internal/export"
 	"github.com/pserrano95/pinacoteca/internal/index"
 	"github.com/pserrano95/pinacoteca/internal/store"
 	"github.com/pserrano95/pinacoteca/internal/web"
@@ -39,6 +40,10 @@ func main() {
 		if err := runGallery(os.Args[2:]); err != nil {
 			log.Fatal(err)
 		}
+	case "export":
+		if err := runExport(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -57,6 +62,7 @@ Usage:
   pinacoteca gallery create     --data DIR --name NAME [--wall-colour COLOUR]
   pinacoteca gallery add-artist --data DIR --gallery SLUG --artist SLUG
   pinacoteca gallery add-member --data DIR --gallery SLUG --member ID --role ROLE
+  pinacoteca export  --data DIR --artist SLUG --out DIR [--lang es|en]
   pinacoteca reindex --data DIR
 
 `)
@@ -255,4 +261,27 @@ func openStore(data string) (*store.Store, error) {
 		return nil, err
 	}
 	return st, nil
+}
+
+func runExport(args []string) error {
+	fs := flag.NewFlagSet("export", flag.ContinueOnError)
+	data := dataFlag(fs)
+	artist := fs.String("artist", "", "artist slug")
+	out := fs.String("out", "", "destination directory for export")
+	lang := fs.String("lang", "en", "language for the export (en or es)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*artist) == "" {
+		return fmt.Errorf("export requires --artist")
+	}
+	if strings.TrimSpace(*out) == "" {
+		return fmt.Errorf("export requires --out")
+	}
+	dataDir, err := filepath.Abs(*data)
+	if err != nil {
+		return err
+	}
+	st := store.New(dataDir)
+	return export.Artist(st, *artist, *out, *lang)
 }
