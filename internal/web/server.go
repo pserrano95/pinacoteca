@@ -71,6 +71,8 @@ func (s *Server) Handler() http.Handler {
 	}
 	handlers := map[string]http.Handler{
 		"GET /static/":                                     http.StripPrefix("/static/", http.FileServer(http.FS(static))),
+		"GET /manifest.webmanifest":                        http.HandlerFunc(s.manifestGET),
+		"GET /sw.js":                                       http.HandlerFunc(s.swGET),
 		"GET /login":                                       http.HandlerFunc(s.loginGET),
 		"GET /invite/{token}":                              http.HandlerFunc(s.inviteGET),
 		"POST /login/begin":                                http.HandlerFunc(s.loginBegin),
@@ -922,4 +924,25 @@ func displayTitle(t string) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func (s *Server) manifestGET(w http.ResponseWriter, r *http.Request) {
+	b, err := assets.ReadFile("static/manifest.webmanifest")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/manifest+json")
+	_, _ = w.Write(b)
+}
+
+func (s *Server) swGET(w http.ResponseWriter, r *http.Request) {
+	b, err := assets.ReadFile("static/sw.js")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(b)
 }

@@ -400,6 +400,8 @@ func TestOriginalAndThumbRequireSession(t *testing.T) {
 func TestNonPublicRoutesRequireSession(t *testing.T) {
 	public := map[string]bool{
 		"GET /static/":                true,
+		"GET /manifest.webmanifest":   true,
+		"GET /sw.js":                  true,
 		"GET /login":                  true,
 		"GET /invite/{token}":         true,
 		"POST /login/begin":           true,
