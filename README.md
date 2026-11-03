@@ -57,3 +57,21 @@ docker run --rm -p 8080:8080 -v pinacoteca-data:/data pinacoteca
 - What is still open: [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md)
 
 Licensed under the [GNU AGPL-3.0](LICENSE).
+
+### Artist guardians
+
+Web artist creation makes the signed-in creator a provisional guardian and
+approves the selected gallery. Other gallery requests remain pending until a
+guardian approves them on the artist's galleries page, linked from the home
+page. Gallery ownership alone cannot approve a request. Artists without
+guardians retain their existing visibility.
+
+The host can assign a guardian to an older artist (the member must already exist):
+
+```sh
+pinacoteca artist add-guardian --data ./data ARTIST_SLUG MEMBER_ID
+```
+
+Assignment does not approve existing galleries: the guardian must approve them.
+Guardian IDs and approved gallery slugs live in `artist.json`; reindexing
+preserves these permissions. CLI-created artists have no provisional guardian.

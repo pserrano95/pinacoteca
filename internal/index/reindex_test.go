@@ -90,6 +90,31 @@ func TestReindexRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Include guardian assignment and one approval alongside a pending gallery.
+	members, err := st.ListMemberRecords()
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardianID := members[0].Member.ID
+	if err := st.AddArtistGuardian(a1.Slug, guardianID); err != nil {
+		t.Fatal(err)
+	}
+	approved, err := st.CreateGallery("Approved", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := st.CreateGallery("Pending", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range []string{approved.Slug, pending.Slug} {
+		if err := st.AddGalleryArtist(g, a1.Slug); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.ApproveArtistGallery(a1.Slug, approved.Slug, guardianID); err != nil {
+		t.Fatal(err)
+	}
 	ix, err := index.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -106,6 +131,16 @@ func TestReindexRoundTrip(t *testing.T) {
 	}
 	if len(before.Members[0].Passkeys) != 1 || before.Members[0].Passkeys[0].PublicKey == "" {
 		t.Fatalf("credentials missing before delete: %+v", before.Members)
+	}
+
+	var permissionFound bool
+	for _, a := range before.Artists {
+		if a.Slug == a1.Slug {
+			permissionFound = len(a.Guardians) == 1 && a.Guardians[0] == guardianID && len(a.ApprovedGalleries) == 1 && a.ApprovedGalleries[0] == approved.Slug
+		}
+	}
+	if !permissionFound {
+		t.Fatal("guardian or approval missing from snapshot")
 	}
 	// Spot-check ages and gifted_to are in the index.
 	var foundGift bool

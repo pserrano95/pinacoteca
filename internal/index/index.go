@@ -50,6 +50,11 @@ func (ix *Index) Path() string { return ix.path }
 
 func (ix *Index) migrate() error {
 	_, err := ix.db.Exec(`
+CREATE TABLE IF NOT EXISTS artist_permissions (
+ artist_slug TEXT PRIMARY KEY,
+ guardians TEXT NOT NULL,
+ approved_galleries TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS artists (
   slug TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -136,7 +141,7 @@ func (ix *Index) rebuild(st *store.Store, keepSessions bool) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	tables := []string{"gallery_members", "gallery_artists", "galleries", "credentials", "members", "artworks", "artists"}
+	tables := []string{"artist_permissions", "gallery_members", "gallery_artists", "galleries", "credentials", "members", "artworks", "artists"}
 	if !keepSessions {
 		tables = append([]string{"sessions"}, tables...)
 	}
@@ -151,6 +156,11 @@ func (ix *Index) rebuild(st *store.Store, keepSessions bool) error {
 		return err
 	}
 	for _, a := range artists {
+		guardians, _ := json.Marshal(append([]string{}, a.Guardians...))
+		approved, _ := json.Marshal(append([]string{}, a.ApprovedGalleries...))
+		if _, err := tx.Exec(`INSERT INTO artist_permissions VALUES (?, ?, ?)`, a.Slug, string(guardians), string(approved)); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(
 			`INSERT INTO artists (slug, name, birth_date, schema_version) VALUES (?, ?, ?, ?)`,
 			a.Slug, a.Name, a.BirthDate.Format("2006-01-02"), a.SchemaVersion,
@@ -249,10 +259,12 @@ func boolInt(v bool) int {
 
 // ArtistRow is an indexed artist.
 type ArtistRow struct {
-	Slug          string
-	Name          string
-	BirthDate     time.Time
-	SchemaVersion int
+	Slug              string
+	Name              string
+	BirthDate         time.Time
+	SchemaVersion     int
+	Guardians         []string
+	ApprovedGalleries []string
 }
 
 // ArtworkRow is an indexed artwork with computed age.
@@ -271,7 +283,7 @@ type ArtworkRow struct {
 }
 
 func (ix *Index) ListArtists() ([]ArtistRow, error) {
-	rows, err := ix.db.Query(`SELECT slug, name, birth_date, schema_version FROM artists ORDER BY name`)
+	rows, err := ix.db.Query(`SELECT a.slug, a.name, a.birth_date, a.schema_version, p.guardians, p.approved_galleries FROM artists a JOIN artist_permissions p ON p.artist_slug = a.slug ORDER BY a.name`)
 	if err != nil {
 		return nil, err
 	}
@@ -279,12 +291,18 @@ func (ix *Index) ListArtists() ([]ArtistRow, error) {
 	var out []ArtistRow
 	for rows.Next() {
 		var r ArtistRow
-		var birth string
-		if err := rows.Scan(&r.Slug, &r.Name, &birth, &r.SchemaVersion); err != nil {
+		var birth, guardians, approved string
+		if err := rows.Scan(&r.Slug, &r.Name, &birth, &r.SchemaVersion, &guardians, &approved); err != nil {
 			return nil, err
 		}
 		t, err := time.Parse("2006-01-02", birth)
 		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(guardians), &r.Guardians); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(approved), &r.ApprovedGalleries); err != nil {
 			return nil, err
 		}
 		r.BirthDate = t
@@ -295,15 +313,21 @@ func (ix *Index) ListArtists() ([]ArtistRow, error) {
 
 func (ix *Index) GetArtist(slug string) (*ArtistRow, error) {
 	var r ArtistRow
-	var birth string
+	var birth, guardians, approved string
 	err := ix.db.QueryRow(
-		`SELECT slug, name, birth_date, schema_version FROM artists WHERE slug = ?`, slug,
-	).Scan(&r.Slug, &r.Name, &birth, &r.SchemaVersion)
+		`SELECT a.slug, a.name, a.birth_date, a.schema_version, p.guardians, p.approved_galleries FROM artists a JOIN artist_permissions p ON p.artist_slug = a.slug WHERE a.slug = ?`, slug,
+	).Scan(&r.Slug, &r.Name, &birth, &r.SchemaVersion, &guardians, &approved)
 	if err != nil {
 		return nil, err
 	}
 	t, err := time.Parse("2006-01-02", birth)
 	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(guardians), &r.Guardians); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(approved), &r.ApprovedGalleries); err != nil {
 		return nil, err
 	}
 	r.BirthDate = t
@@ -465,7 +489,7 @@ func EqualSnapshots(a, b Snapshot) error {
 	for i := range a.Artists {
 		aa, bb := a.Artists[i], b.Artists[i]
 		if aa.Slug != bb.Slug || aa.Name != bb.Name ||
-			!aa.BirthDate.Equal(bb.BirthDate) || aa.SchemaVersion != bb.SchemaVersion {
+			!aa.BirthDate.Equal(bb.BirthDate) || aa.SchemaVersion != bb.SchemaVersion || !tagsEqual(aa.Guardians, bb.Guardians) || !tagsEqual(aa.ApprovedGalleries, bb.ApprovedGalleries) {
 			return fmt.Errorf("artist mismatch at %d: %+v vs %+v", i, aa, bb)
 		}
 	}
@@ -781,13 +805,20 @@ func (ix *Index) galleryMembers(gallerySlug string) ([]GalleryMemberRow, error) 
 	return out, rows.Err()
 }
 
+// galleryApprovalSQL applies the artist's permission to each gallery separately.
+const galleryApprovalSQL = ` AND EXISTS (
+ SELECT 1 FROM artist_permissions p WHERE p.artist_slug = ga.artist_slug
+ AND (NOT EXISTS (SELECT 1 FROM json_each(p.guardians))
+ OR EXISTS (SELECT 1 FROM json_each(p.approved_galleries) WHERE value = ga.gallery_slug))
+)`
+
 // CanSeeArtist reports whether the member belongs to a gallery that lists the artist.
 func (ix *Index) CanSeeArtist(memberID, artistSlug string) (bool, error) {
 	var n int
 	err := ix.db.QueryRow(`
 SELECT COUNT(*) FROM gallery_members gm
 JOIN gallery_artists ga ON ga.gallery_slug = gm.gallery_slug
-WHERE gm.member_id = ? AND ga.artist_slug = ?`, memberID, artistSlug).Scan(&n)
+WHERE gm.member_id = ? AND ga.artist_slug = ?`+galleryApprovalSQL, memberID, artistSlug).Scan(&n)
 	if err != nil {
 		return false, err
 	}
@@ -800,7 +831,7 @@ func (ix *Index) CanUploadArtist(memberID, artistSlug string) (bool, error) {
 	err := ix.db.QueryRow(`
 SELECT COUNT(*) FROM gallery_members gm
 JOIN gallery_artists ga ON ga.gallery_slug = gm.gallery_slug
-WHERE gm.member_id = ? AND ga.artist_slug = ? AND gm.role IN (?, ?)`,
+WHERE gm.member_id = ? AND ga.artist_slug = ? AND gm.role IN (?, ?)`+galleryApprovalSQL,
 		memberID, artistSlug, store.RoleOwner, store.RoleContributor).Scan(&n)
 	if err != nil {
 		return false, err
@@ -886,6 +917,7 @@ SELECT DISTINCT ga.artist_slug
 FROM gallery_artists ga
 JOIN gallery_members gm ON gm.gallery_slug = ga.gallery_slug
 WHERE gm.member_id = ?`
+	q += galleryApprovalSQL
 	args := []any{memberID}
 	if uploadOnly {
 		q += ` AND gm.role IN (?, ?)`

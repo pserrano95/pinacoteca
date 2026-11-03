@@ -51,6 +51,10 @@ func (s *Store) EnsureLayout() error {
 
 // CreateArtist writes artists/<slug>/artist.json. Slug collisions get a numeric suffix.
 func (s *Store) CreateArtist(name string, birthDate time.Time) (*Artist, error) {
+	return s.createArtist(name, birthDate, nil)
+}
+
+func (s *Store) createArtist(name string, birthDate time.Time, guardians []string) (*Artist, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("artist name is required")
@@ -68,6 +72,7 @@ func (s *Store) CreateArtist(name string, birthDate time.Time) (*Artist, error) 
 		artistSlug = fmt.Sprintf("%s-%d", base, i)
 	}
 	a := &Artist{
+		Guardians:     guardians,
 		SchemaVersion: SchemaVersion,
 		Name:          name,
 		BirthDate:     NewDate(birthDate),
@@ -85,9 +90,18 @@ func (s *Store) CreateArtist(name string, birthDate time.Time) (*Artist, error) 
 }
 
 func (s *Store) LoadArtist(artistSlug string) (*Artist, error) {
+	if err := safeSlug(artistSlug); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(s.ArtistsRoot(), artistSlug, ArtistFile)
 	var a Artist
 	if err := readJSON(path, &a); err != nil {
+		return nil, err
+	}
+	if a.Slug != artistSlug {
+		return nil, fmt.Errorf("artist slug does not match directory")
+	}
+	if err := validateArtistPermissions(a); err != nil {
 		return nil, err
 	}
 	return &a, nil
@@ -106,9 +120,12 @@ func (s *Store) ListArtists() ([]Artist, error) {
 		if !e.IsDir() {
 			continue
 		}
+		if _, err := os.Stat(filepath.Join(s.ArtistsRoot(), e.Name(), ArtistFile)); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		a, err := s.LoadArtist(e.Name())
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("artist %s: %w", e.Name(), err)
 		}
 		out = append(out, *a)
 	}

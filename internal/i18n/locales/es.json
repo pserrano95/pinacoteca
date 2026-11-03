@@ -87,5 +87,11 @@
   "export_age_years": "Edad {age}",
   "export_description": "Descripción",
   "export_tags": "Etiquetas",
-  "export_original": "Original"
+  "export_original": "Original",
+  "guardian_artists": "Artistas a tu cargo:",
+  "guardian_pending": "Galerías pendientes",
+  "guardian_approved": "Galerías aprobadas",
+  "guardian_approve": "Aprobar",
+  "guardian_none_pending": "No hay galerías pendientes de aprobación.",
+  "guardian_none_approved": "Todavía no hay galerías aprobadas."
 }

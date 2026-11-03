@@ -36,6 +36,10 @@ func main() {
 		if err := runInvite(os.Args[2:]); err != nil {
 			log.Fatal(err)
 		}
+	case "artist":
+		if err := runArtist(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
 	case "gallery":
 		if err := runGallery(os.Args[2:]); err != nil {
 			log.Fatal(err)
@@ -62,6 +66,7 @@ Usage:
   pinacoteca gallery create     --data DIR --name NAME [--wall-colour COLOUR]
   pinacoteca gallery add-artist --data DIR --gallery SLUG --artist SLUG
   pinacoteca gallery add-member --data DIR --gallery SLUG --member ID --role ROLE
+  pinacoteca artist add-guardian --data DIR ARTIST MEMBER
   pinacoteca export  --data DIR --artist SLUG --out DIR [--lang es|en]
   pinacoteca reindex --data DIR
 
@@ -284,4 +289,28 @@ func runExport(args []string) error {
 	}
 	st := store.New(dataDir)
 	return export.Artist(st, *artist, *out, *lang)
+}
+
+func runArtist(args []string) error {
+	if len(args) == 0 || args[0] != "add-guardian" {
+		return fmt.Errorf("expected artist add-guardian")
+	}
+	fs := flag.NewFlagSet("artist add-guardian", flag.ContinueOnError)
+	data := dataFlag(fs)
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return fmt.Errorf("expected artist slug and member id")
+	}
+	st := store.New(*data)
+	if err := st.AddArtistGuardian(fs.Arg(0), fs.Arg(1)); err != nil {
+		return err
+	}
+	ix, err := index.Open(*data)
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	return ix.RebuildKeepingSessions(st)
 }
