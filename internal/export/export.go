@@ -51,18 +51,23 @@ func Artist(st *store.Store, artistSlug, outDir, lang string) error {
 		return fmt.Errorf("output directory %q cannot be inside data directory %q", outDir, st.DataDir)
 	}
 
+	rawOut := outDir
+	outDir = canOut
+
+	var outExisted bool
 	info, err := os.Stat(outDir)
 	if err == nil {
 		if !info.IsDir() {
-			return fmt.Errorf("output path %q exists and is not a directory", outDir)
+			return fmt.Errorf("output path %q exists and is not a directory", rawOut)
 		}
 		entries, err := os.ReadDir(outDir)
 		if err != nil {
 			return fmt.Errorf("read output directory: %w", err)
 		}
 		if len(entries) > 0 {
-			return fmt.Errorf("output directory %q is not empty", outDir)
+			return fmt.Errorf("output directory %q is not empty", rawOut)
 		}
+		outExisted = true
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("stat output directory: %w", err)
 	}
@@ -84,9 +89,28 @@ func Artist(st *store.Store, artistSlug, outDir, lang string) error {
 		}
 	}
 
+	var success bool
+	var outCreated bool
+	defer func() {
+		if success || !outCreated {
+			return
+		}
+		if outExisted {
+			entries, err := os.ReadDir(outDir)
+			if err == nil {
+				for _, entry := range entries {
+					_ = os.RemoveAll(filepath.Join(outDir, entry.Name()))
+				}
+			}
+		} else {
+			_ = os.RemoveAll(outDir)
+		}
+	}()
+
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
+	outCreated = true
 
 	artistSrc := filepath.Join(st.ArtistsRoot(), artist.Slug, store.ArtistFile)
 	artistDst := filepath.Join(outDir, store.ArtistFile)
@@ -173,7 +197,6 @@ func Artist(st *store.Store, artistSlug, outDir, lang string) error {
 	if err != nil {
 		return fmt.Errorf("create index.html: %w", err)
 	}
-	defer f.Close()
 
 	tmplData := struct {
 		Lang     string
@@ -191,38 +214,104 @@ func Artist(st *store.Store, artistSlug, outDir, lang string) error {
 		AgeLabel: ageLabelFunc,
 	}
 
-	if err := tmpl.Execute(f, tmplData); err != nil {
-		return fmt.Errorf("render index.html: %w", err)
+	renderErr := tmpl.Execute(f, tmplData)
+	closeErr := f.Close()
+	if renderErr != nil {
+		return fmt.Errorf("render index.html: %w", renderErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close index.html: %w", closeErr)
 	}
 
+	success = true
 	return nil
 }
 
 func canonicalPath(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
+	return canonicalPathWithDepth(path, 0)
+}
+
+func canonicalPathWithDepth(path string, depth int) (string, error) {
+	if depth > 64 {
+		return "", errors.New("too many levels of symbolic links")
 	}
-	cur := abs
-	var suffix []string
-	for {
-		realCur, err := filepath.EvalSymlinks(cur)
-		if err == nil {
-			for i := len(suffix) - 1; i >= 0; i-- {
-				realCur = filepath.Join(realCur, suffix[i])
+
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("empty path")
+	}
+
+	var cur string
+	vol := filepath.VolumeName(path)
+	if filepath.IsAbs(path) {
+		if vol != "" {
+			cur = vol + string(filepath.Separator)
+			path = path[len(vol):]
+		} else {
+			cur = "/"
+		}
+	} else {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		realWD, err := filepath.EvalSymlinks(wd)
+		if err != nil {
+			return "", err
+		}
+		cur = realWD
+	}
+
+	parts := strings.FieldsFunc(path, func(r rune) bool {
+		return r == '/' || r == filepath.Separator
+	})
+
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			cur = filepath.Dir(cur)
+			continue
+		}
+
+		next := filepath.Join(cur, part)
+		fi, err := os.Lstat(next)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				cur = next
+				continue
 			}
-			return filepath.Clean(realCur), nil
+			return "", err
 		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return filepath.Clean(abs), nil
+
+		if fi.Mode()&os.ModeSymlink != 0 {
+			realTarget, err := filepath.EvalSymlinks(next)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return "", err
+				}
+				target, rerr := os.Readlink(next)
+				if rerr != nil {
+					return "", err
+				}
+				if !filepath.IsAbs(target) {
+					target = strings.TrimRight(cur, string(filepath.Separator)) + string(filepath.Separator) + target
+				}
+				resolvedTarget, rerr := canonicalPathWithDepth(target, depth+1)
+				if rerr != nil {
+					return "", rerr
+				}
+				cur = resolvedTarget
+				continue
+			}
+			cur = realTarget
+		} else {
+			cur = next
 		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return filepath.Clean(abs), nil
-		}
-		suffix = append(suffix, filepath.Base(cur))
-		cur = parent
 	}
+
+	return filepath.Clean(cur), nil
 }
 
 func isInsideOrSame(parent, sub string) (bool, error) {
