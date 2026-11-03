@@ -373,3 +373,284 @@ func TestExportArtist_InvalidSlug(t *testing.T) {
 		}
 	}
 }
+
+func TestExportArtist_SymlinkEscapingData(t *testing.T) {
+	tempRoot := t.TempDir()
+	dataDir := filepath.Join(tempRoot, "DATA")
+	st := store.New(dataDir)
+	if err := st.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+	ada, err := st.CreateArtist("Ada", time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = st.CreateArtwork(store.CreateArtworkInput{
+		ArtistSlug: ada.Slug,
+		Title:      "Drawing",
+		Date:       time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+		ImageBytes: pngBytes(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	subDir := filepath.Join(dataDir, "sub")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	baseDir := filepath.Join(tempRoot, "BASE")
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(baseDir, "link")
+	if err := os.Symlink("../DATA/sub", linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	outEscaped := baseDir + string(filepath.Separator) + "link" + string(filepath.Separator) + ".." + string(filepath.Separator) + "escaped"
+	err = export.Artist(st, ada.Slug, outEscaped, "es")
+	if err == nil {
+		t.Fatal("expected error for outDir escaping into dataDir via symlink, got nil")
+	}
+	if !strings.Contains(err.Error(), "inside data directory") {
+		t.Fatalf("expected error message to contain 'inside data directory', got %v", err)
+	}
+
+	escapedInData := filepath.Join(dataDir, "escaped")
+	if _, err := os.Stat(escapedInData); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("DATA/escaped was created inside data: %v", err)
+	}
+	escapedInBase := filepath.Join(baseDir, "escaped")
+	if _, err := os.Stat(escapedInBase); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("BASE/escaped was created: %v", err)
+	}
+}
+
+func TestExportArtist_SymlinkToData(t *testing.T) {
+	tempRoot := t.TempDir()
+	dataDir := filepath.Join(tempRoot, "DATA")
+	st := store.New(dataDir)
+	if err := st.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+	ada, err := st.CreateArtist("Ada", time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = st.CreateArtwork(store.CreateArtworkInput{
+		ArtistSlug: ada.Slug,
+		Title:      "Drawing",
+		Date:       time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+		ImageBytes: pngBytes(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	baseDir := filepath.Join(tempRoot, "BASE")
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. --out is a symlink directly to DATA
+	outLinkData := filepath.Join(baseDir, "out-link-data")
+	if err := os.Symlink(dataDir, outLinkData); err != nil {
+		t.Fatal(err)
+	}
+	beforeSnap := snapshotTree(t, dataDir)
+	err = export.Artist(st, ada.Slug, outLinkData, "es")
+	if err == nil {
+		t.Fatal("expected error when out is symlink to dataDir, got nil")
+	}
+	if !strings.Contains(err.Error(), "inside data directory") {
+		t.Fatalf("expected error message to contain 'inside data directory', got %v", err)
+	}
+	afterSnap := snapshotTree(t, dataDir)
+	if !reflect.DeepEqual(beforeSnap, afterSnap) {
+		t.Fatal("dataDir was modified when out was symlink to dataDir")
+	}
+
+	// 2. --out is a symlink to a subfolder inside DATA
+	subDir := filepath.Join(dataDir, "sub")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	outLinkSub := filepath.Join(baseDir, "out-link-sub")
+	if err := os.Symlink(subDir, outLinkSub); err != nil {
+		t.Fatal(err)
+	}
+	beforeSnap = snapshotTree(t, dataDir)
+	err = export.Artist(st, ada.Slug, outLinkSub, "es")
+	if err == nil {
+		t.Fatal("expected error when out is symlink inside dataDir, got nil")
+	}
+	if !strings.Contains(err.Error(), "inside data directory") {
+		t.Fatalf("expected error message to contain 'inside data directory', got %v", err)
+	}
+	afterSnap = snapshotTree(t, dataDir)
+	if !reflect.DeepEqual(beforeSnap, afterSnap) {
+		t.Fatal("dataDir was modified when out was symlink inside dataDir")
+	}
+
+	// 3. --data is itself a symlink and --out is inside its real target
+	realDataDir := filepath.Join(tempRoot, "REAL_DATA")
+	stReal := store.New(realDataDir)
+	if err := stReal.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+	adaReal, err := stReal.CreateArtist("Ada Real", time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = stReal.CreateArtwork(store.CreateArtworkInput{
+		ArtistSlug: adaReal.Slug,
+		Title:      "Drawing Real",
+		Date:       time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+		ImageBytes: pngBytes(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	symlinkDataDir := filepath.Join(tempRoot, "SYMLINK_DATA")
+	if err := os.Symlink(realDataDir, symlinkDataDir); err != nil {
+		t.Fatal(err)
+	}
+	stSym := store.New(symlinkDataDir)
+	outInsideReal := filepath.Join(realDataDir, "sub-export")
+	err = export.Artist(stSym, adaReal.Slug, outInsideReal, "es")
+	if err == nil {
+		t.Fatal("expected error when out is inside real target of symlink dataDir, got nil")
+	}
+	if !strings.Contains(err.Error(), "inside data directory") {
+		t.Fatalf("expected error message to contain 'inside data directory', got %v", err)
+	}
+	if _, err := os.Stat(outInsideReal); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("out directory inside real target was created: %v", err)
+	}
+}
+
+func TestExportArtist_SymlinkOutsideData(t *testing.T) {
+	tempRoot := t.TempDir()
+	dataDir := filepath.Join(tempRoot, "DATA")
+	st := store.New(dataDir)
+	if err := st.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+	ada, err := st.CreateArtist("Ada", time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	art, err := st.CreateArtwork(store.CreateArtworkInput{
+		ArtistSlug: ada.Slug,
+		Title:      "Drawing",
+		Date:       time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+		ImageBytes: pngBytes(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	otroDir := filepath.Join(tempRoot, "OTRO")
+	otroSub := filepath.Join(otroDir, "sub")
+	if err := os.MkdirAll(otroSub, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	baseDir := filepath.Join(tempRoot, "BASE")
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(baseDir, "link")
+	if err := os.Symlink(otroSub, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath := baseDir + string(filepath.Separator) + "link" + string(filepath.Separator) + ".." + string(filepath.Separator) + "fuera"
+	if err := export.Artist(st, ada.Slug, outPath, "es"); err != nil {
+		t.Fatalf("expected export to succeed, got error: %v", err)
+	}
+
+	// Verify files ended up in OTRO/fuera
+	expectedDir := filepath.Join(otroDir, "fuera")
+	if _, err := os.Stat(filepath.Join(expectedDir, "artist.json")); err != nil {
+		t.Fatalf("artist.json missing in %s: %v", expectedDir, err)
+	}
+	if _, err := os.Stat(filepath.Join(expectedDir, "index.html")); err != nil {
+		t.Fatalf("index.html missing in %s: %v", expectedDir, err)
+	}
+	if _, err := os.Stat(filepath.Join(expectedDir, art.Folder, art.OriginalName)); err != nil {
+		t.Fatalf("original missing in %s: %v", expectedDir, err)
+	}
+
+	// Verify files did NOT end up in BASE/fuera
+	baseFuera := filepath.Join(baseDir, "fuera")
+	if _, err := os.Stat(baseFuera); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("BASE/fuera exists unexpectedly: %v", err)
+	}
+}
+
+func TestExportArtist_FailureCleanup(t *testing.T) {
+	tempRoot := t.TempDir()
+	dataDir := filepath.Join(tempRoot, "DATA")
+	st := store.New(dataDir)
+	if err := st.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+	ada, err := st.CreateArtist("Ada", time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	art, err := st.CreateArtwork(store.CreateArtworkInput{
+		ArtistSlug: ada.Slug,
+		Title:      "Drawing",
+		Date:       time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+		ImageBytes: pngBytes(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make original unreadable to induce midway failure during copy
+	if err := os.Chmod(art.OriginalPath, 0000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(art.OriginalPath, 0644)
+
+	// Case 1: outDir did NOT exist before export
+	nonExistentOut := filepath.Join(tempRoot, "out-nonexistent")
+	err = export.Artist(st, ada.Slug, nonExistentOut, "es")
+	if err == nil {
+		t.Fatal("expected error due to unreadable original, got nil")
+	}
+	if _, err := os.Stat(nonExistentOut); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outDir should not exist after failure, got stat err: %v", err)
+	}
+
+	// Case 2: outDir already existed and was empty before export
+	emptyOut := filepath.Join(tempRoot, "out-empty")
+	if err := os.MkdirAll(emptyOut, 0755); err != nil {
+		t.Fatal(err)
+	}
+	err = export.Artist(st, ada.Slug, emptyOut, "es")
+	if err == nil {
+		t.Fatal("expected error due to unreadable original, got nil")
+	}
+	info, err := os.Stat(emptyOut)
+	if err != nil {
+		t.Fatalf("outDir should still exist after failure: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("outDir should be a directory, got %v", info)
+	}
+	entries, err := os.ReadDir(emptyOut)
+	if err != nil {
+		t.Fatalf("read outDir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("outDir should be empty after failure, but contained %d entries: %v", len(entries), entries)
+	}
+}
