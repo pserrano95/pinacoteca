@@ -53,7 +53,10 @@
       {{range .OwnedGalleries}}<a href="/galleries/{{.Slug}}?lang={{$.Lang}}">{{.Name}}</a> {{end}}
     </p>
     {{end}}
-    {{if not .Artworks}}
+    {{if .GuardianArtists}}
+ <p>{{call .T "guardian_artists"}} {{range .GuardianArtists}}<a href="/artists/{{.Slug}}/galleries?lang={{$.Lang}}">{{.Name}}</a> {{end}}</p>
+ {{end}}
+ {{if not .Artworks}}
       <p class="empty">{{call .T "gallery_empty"}}</p>
     {{else}}
       <div class="grid">
@@ -311,6 +314,26 @@
     <h1>{{call .T "invite_invalid_title"}}</h1>
     <p>{{call .T "invite_invalid_body"}}</p>
   </main>
+</body>
+</html>
+{{end}}
+
+{{define "artist_galleries"}}
+{{template "head" .}}
+{{template "header" .}}
+<main>
+ <h1>{{.Title}}</h1>
+ <h2>{{call .T "guardian_pending"}}</h2>
+ {{range .PendingGalleries}}
+ <form method="post" action="/artists/{{$.GuardianArtist}}/galleries/{{.Slug}}/approve">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <input type="hidden" name="lang" value="{{$.Lang}}">
+  <p>{{.Name}} <button type="submit">{{call $.T "guardian_approve"}}</button></p>
+ </form>
+ {{else}}<p>{{call .T "guardian_none_pending"}}</p>{{end}}
+ <h2>{{call .T "guardian_approved"}}</h2>
+ {{range .ApprovedGalleries}}<p>{{.Name}}</p>{{else}}<p>{{call .T "guardian_none_approved"}}</p>{{end}}
+</main>
 </body>
 </html>
 {{end}}

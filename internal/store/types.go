@@ -51,10 +51,12 @@ func (d *Date) UnmarshalJSON(b []byte) error {
 
 // Artist is persisted as artists/<slug>/artist.json.
 type Artist struct {
-	SchemaVersion int    `json:"schema_version"`
-	Name          string `json:"name"`
-	BirthDate     Date   `json:"birth_date"`
-	Slug          string `json:"slug"`
+	Guardians         []string `json:"guardians,omitempty"`
+	ApprovedGalleries []string `json:"approved_galleries,omitempty"`
+	SchemaVersion     int      `json:"schema_version"`
+	Name              string   `json:"name"`
+	BirthDate         Date     `json:"birth_date"`
+	Slug              string   `json:"slug"`
 }
 
 // Artwork is persisted as artwork.json beside original.* and derived/.
