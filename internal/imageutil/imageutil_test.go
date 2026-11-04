@@ -93,6 +93,35 @@ func makeExifAPP1(byteOrder binary.ByteOrder, orientation int, ifdOffsetOverride
 	return seg.Bytes()
 }
 
+func makeExifAPP1EntriesPastEnd(byteOrder binary.ByteOrder) []byte {
+	var tiff bytes.Buffer
+	if byteOrder == binary.LittleEndian {
+		tiff.WriteString("II")
+	} else {
+		tiff.WriteString("MM")
+	}
+	_ = binary.Write(&tiff, byteOrder, uint16(42))
+	_ = binary.Write(&tiff, byteOrder, uint32(8)) // IFD offset
+
+	// IFD0: numEntries=5, but room for only 1 entry (12 bytes)
+	_ = binary.Write(&tiff, byteOrder, uint16(5))
+	// Entry 0: tag 0x0100 (ImageWidth), SHORT, count 1, value 40
+	_ = binary.Write(&tiff, byteOrder, uint16(0x0100))
+	_ = binary.Write(&tiff, byteOrder, uint16(3))  // SHORT
+	_ = binary.Write(&tiff, byteOrder, uint32(1))  // count = 1
+	_ = binary.Write(&tiff, byteOrder, uint16(40)) // value
+	_ = binary.Write(&tiff, byteOrder, uint16(0))  // padding
+
+	payload := append([]byte("Exif\x00\x00"), tiff.Bytes()...)
+	segLen := uint16(2 + len(payload))
+	var seg bytes.Buffer
+	seg.WriteByte(0xff)
+	seg.WriteByte(0xe1)
+	_ = binary.Write(&seg, binary.BigEndian, segLen)
+	seg.Write(payload)
+	return seg.Bytes()
+}
+
 func insertAPP1(jpegBytes, app1Bytes []byte) []byte {
 	res := make([]byte, 0, len(jpegBytes)+len(app1Bytes))
 	res = append(res, jpegBytes[:2]...)
@@ -198,6 +227,14 @@ func TestReadOrientation(t *testing.T) {
 		withExif := insertAPP1(base, app1)
 		if got := imageutil.ReadOrientation(withExif); got != 1 {
 			t.Fatalf("expected 1 for out of bounds IFD, got %d", got)
+		}
+	})
+
+	t.Run("IFD entry count past segment end", func(t *testing.T) {
+		base := encodeJPEG(t, createCornerImage(40, 20))
+		withExif := insertAPP1(base, makeExifAPP1EntriesPastEnd(binary.LittleEndian))
+		if got := imageutil.ReadOrientation(withExif); got != 1 {
+			t.Fatalf("expected 1 for IFD entry count past segment end, got %d", got)
 		}
 	})
 
@@ -307,6 +344,10 @@ func TestWriteThumbnail_MalformedAndNoAPP1(t *testing.T) {
 		{
 			name: "IFD out of bounds",
 			data: insertAPP1(base, makeExifAPP1(binary.LittleEndian, 6, 9999)),
+		},
+		{
+			name: "IFD entry count past segment end",
+			data: insertAPP1(base, makeExifAPP1EntriesPastEnd(binary.LittleEndian)),
 		},
 		{
 			name: "orientation 9",

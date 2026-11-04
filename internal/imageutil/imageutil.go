@@ -115,7 +115,7 @@ func ReadOrientation(data []byte) int {
 			return 1
 		}
 
-		payload := data[idx+2 : idx+segLen]
+		payload := data[idx+2 : idx+segLen : idx+segLen]
 		idx += segLen
 
 		if marker == 0xe1 {
