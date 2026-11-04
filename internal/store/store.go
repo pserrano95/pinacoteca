@@ -206,7 +206,8 @@ func (s *Store) CreateArtwork(in CreateArtworkInput) (*ArtworkRecord, error) {
 	}
 
 	thumbPath := filepath.Join(dir, DerivedDir, ThumbName)
-	if err := imageutil.WriteThumbnail(originalPath, thumbPath, 400); err != nil {
+	orientation, err := imageutil.WriteThumbnail(originalPath, thumbPath, 400)
+	if err != nil {
 		return nil, fmt.Errorf("thumbnail: %w", err)
 	}
 	thumbMeta := map[string]any{
@@ -215,6 +216,7 @@ func (s *Store) CreateArtwork(in CreateArtworkInput) (*ArtworkRecord, error) {
 		"source":         originalName,
 		"max_edge":       400,
 		"format":         "jpeg",
+		"orientation":    orientation,
 	}
 	if err := writeJSON(filepath.Join(dir, DerivedDir, ThumbMetaName), thumbMeta); err != nil {
 		return nil, err
