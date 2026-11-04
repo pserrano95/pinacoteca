@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -67,6 +68,47 @@ func TestArtistRejectsInvalidGuardianAndApprovalFiles(t *testing.T) {
 				t.Fatal("invalid permissions silently omitted by archive scan")
 			}
 		})
+	}
+}
+
+func TestApproveArtistGalleryRejectsNonGuardianOwner(t *testing.T) {
+	st := store.New(t.TempDir())
+	guardian, err := st.CreateMember("Parent", []store.Passkey{{ID: "guardian-test", PublicKey: "pk-test", CreatedAt: time.Now()}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := st.CreateMember("Owner", []store.Passkey{{ID: "owner-test", PublicKey: "pk-test", CreatedAt: time.Now()}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := st.CreateArtistWithGuardian("Ada", time.Now(), guardian.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := st.CreateGallery("Family", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryMember(g.Slug, owner.ID, store.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGalleryArtist(g.Slug, a.Slug); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(st.ArtistsRoot(), a.Slug, store.ArtistFile)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ApproveArtistGallery(a.Slug, g.Slug, owner.ID); err == nil {
+		t.Error("gallery owner without guardianship approved artist")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Error("rejected approval changed artist.json")
 	}
 }
 
