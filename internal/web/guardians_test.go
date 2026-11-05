@@ -267,6 +267,14 @@ func TestGuardianWithoutGalleryMembershipCanApproveFromHomeLink(t *testing.T) {
 		t.Fatalf("guardian without membership approval: %d %s", status, body)
 	}
 	w.assertVisible(t, w.other, true)
-	// Tutorship permits approval; it does not create a gallery membership.
-	w.assertVisible(t, c, false)
+	// Tutorship does not create a gallery membership; direct inspection is
+	// available from the guardian management page, including hidden works.
+	_, body = getStatus(t, c, w.base+"/")
+	if strings.Contains(body, "GuardedSun") {
+		t.Fatal("guardian gained gallery membership")
+	}
+	status, _ = getStatus(t, c, w.base+"/artists/"+w.artist+"/artworks/"+w.folder)
+	if status != 200 {
+		t.Fatalf("guardian inspection: %d", status)
+	}
 }

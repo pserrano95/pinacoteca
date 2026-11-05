@@ -412,8 +412,12 @@ func TestNonPublicRoutesRequireSession(t *testing.T) {
 	srv, _, _, _ := newTestServer(t)
 	h := srv.Handler()
 	var checked int
+	visibilityChecked := false
 	for _, rt := range srv.routeSpecs() {
 		key := rt.Method + " " + rt.Pattern
+		if key == "POST /artists/{artist}/artworks/{folder}/visibility" {
+			visibilityChecked = true
+		}
 		if public[key] {
 			if !rt.Public {
 				t.Errorf("%s is in the public allowlist but the server marks it closed", key)
@@ -431,6 +435,9 @@ func TestNonPublicRoutesRequireSession(t *testing.T) {
 			t.Errorf("%s %s: got %d location %q, want 401 or a redirect to /login", rt.Method, path, rec.Code, rec.Header().Get("Location"))
 		}
 		checked++
+	}
+	if !visibilityChecked {
+		t.Fatal("visibility POST missing from closed routes")
 	}
 	if checked == 0 {
 		t.Fatal("no closed routes were checked")

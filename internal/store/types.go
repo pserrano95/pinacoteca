@@ -61,6 +61,7 @@ type Artist struct {
 
 // Artwork is persisted as artwork.json beside original.* and derived/.
 type Artwork struct {
+	Hidden        bool     `json:"hidden,omitempty"`
 	SchemaVersion int      `json:"schema_version"`
 	Title         string   `json:"title"`
 	Date          Date     `json:"date"`

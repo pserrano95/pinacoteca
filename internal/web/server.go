@@ -71,8 +71,9 @@ func (s *Server) Handler() http.Handler {
 		panic(err)
 	}
 	handlers := map[string]http.Handler{
-		"GET /artists/{artist}/galleries":                    http.HandlerFunc(s.artistGalleriesGET),
-		"POST /artists/{artist}/galleries/{gallery}/approve": http.HandlerFunc(s.artistGalleryApprovePOST),
+		"POST /artists/{artist}/artworks/{folder}/visibility": http.HandlerFunc(s.artworkVisibilityPOST),
+		"GET /artists/{artist}/galleries":                     http.HandlerFunc(s.artistGalleriesGET),
+		"POST /artists/{artist}/galleries/{gallery}/approve":  http.HandlerFunc(s.artistGalleryApprovePOST),
 		"GET /static/":                                     http.StripPrefix("/static/", http.FileServer(http.FS(static))),
 		"GET /manifest.webmanifest":                        http.HandlerFunc(s.manifestGET),
 		"GET /sw.js":                                       http.HandlerFunc(s.swGET),
@@ -158,6 +159,7 @@ type choice struct {
 }
 
 type artworkView struct {
+	Hidden      bool
 	ArtistSlug  string
 	ArtistName  string
 	Folder      string
@@ -253,7 +255,7 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
-		if _, show := visible[row.ArtistSlug]; !show {
+		if _, show := visible[row.ArtistSlug]; !show || !s.canSeeHidden(r, row.ArtistSlug, row.Hidden) {
 			continue
 		}
 		thumb := filepath.Join(s.Store.ArtistsRoot(), row.ArtistSlug, row.Folder, store.DerivedDir, store.ThumbName)
@@ -701,7 +703,7 @@ func (s *Server) artworkGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	row, err := s.Index.GetArtwork(artist, folder)
-	if err != nil {
+	if err != nil || !s.canSeeHidden(r, artist, row.Hidden) {
 		http.NotFound(w, r)
 		return
 	}
@@ -730,7 +732,7 @@ func (s *Server) serveOriginal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec, err := s.Store.LoadArtwork(r.PathValue("artist"), r.PathValue("folder"))
-	if err != nil {
+	if err != nil || !s.canSeeHidden(r, rec.ArtistSlug, rec.Meta.Hidden) {
 		http.NotFound(w, r)
 		return
 	}
@@ -742,21 +744,24 @@ func (s *Server) serveThumb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec, err := s.Store.LoadArtwork(r.PathValue("artist"), r.PathValue("folder"))
-	if err != nil || rec.ThumbPath == "" {
+	if err != nil || rec.ThumbPath == "" || !s.canSeeHidden(r, rec.ArtistSlug, rec.Meta.Hidden) {
 		http.NotFound(w, r)
 		return
 	}
 	http.ServeFile(w, r, rec.ThumbPath)
 }
 
-// hiddenArtist writes 404 when the signed-in member shares no gallery with
-// artistSlug, and 500 when the index cannot answer. It returns true when
-// the response is already written.
+// hiddenArtist permits guardian inspection or shared gallery access. Otherwise
+// it writes 404 (500 when the index cannot answer) and returns true.
 func (s *Server) hiddenArtist(w http.ResponseWriter, r *http.Request, artistSlug string) bool {
 	m, ok := s.sessionMember(r)
 	if !ok {
 		http.NotFound(w, r)
 		return true
+	}
+	// Guardians may inspect works from their management page without joining a gallery.
+	if a, err := s.Store.LoadArtist(artistSlug); err == nil && a.IsGuardian(m.ID) {
+		return false
 	}
 	see, err := s.Index.CanSeeArtist(m.ID, artistSlug)
 	if err != nil {
@@ -1027,6 +1032,14 @@ func (s *Server) artistGalleriesGET(w http.ResponseWriter, r *http.Request) {
 			data.PendingGalleries = append(data.PendingGalleries, link)
 		}
 	}
+	rows, err := s.Index.ListArtworksByArtist(a.Slug)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	for _, row := range rows {
+		data.Artworks = append(data.Artworks, artworkView{ArtistSlug: row.ArtistSlug, Folder: row.Folder, Title: displayTitle(row.Title), Hidden: row.Hidden})
+	}
 	s.render(w, "artist_galleries", data)
 }
 
@@ -1037,6 +1050,41 @@ func (s *Server) artistGalleryApprovePOST(w http.ResponseWriter, r *http.Request
 	}
 	m, _ := s.sessionMember(r)
 	if err := s.Store.ApproveArtistGallery(a.Slug, r.PathValue("gallery"), m.ID); err != nil {
+		http.Error(w, genericError(r), http.StatusForbidden)
+		return
+	}
+	if err := s.Index.RebuildKeepingSessions(s.Store); err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/artists/"+a.Slug+"/galleries?lang="+s.page(w, r).Lang, http.StatusSeeOther)
+}
+
+// canSeeHidden authorizes from the archive, independently of gallery roles.
+func (s *Server) canSeeHidden(r *http.Request, artistSlug string, hidden bool) bool {
+	if !hidden {
+		return true
+	}
+	m, ok := s.sessionMember(r)
+	if !ok {
+		return false
+	}
+	a, err := s.Store.LoadArtist(artistSlug)
+	return err == nil && a.IsGuardian(m.ID)
+}
+
+func (s *Server) artworkVisibilityPOST(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.guardianArtist(w, r)
+	if !ok {
+		return
+	}
+	hidden := r.FormValue("hidden")
+	if hidden != "true" && hidden != "false" {
+		http.Error(w, genericError(r), http.StatusBadRequest)
+		return
+	}
+	m, _ := s.sessionMember(r)
+	if err := s.Store.SetArtworkHidden(a.Slug, r.PathValue("folder"), m.ID, hidden == "true"); err != nil {
 		http.Error(w, genericError(r), http.StatusForbidden)
 		return
 	}

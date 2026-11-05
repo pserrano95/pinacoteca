@@ -333,6 +333,16 @@
  {{else}}<p>{{call .T "guardian_none_pending"}}</p>{{end}}
  <h2>{{call .T "guardian_approved"}}</h2>
  {{range .ApprovedGalleries}}<p>{{.Name}}</p>{{else}}<p>{{call .T "guardian_none_approved"}}</p>{{end}}
+ <h2>{{call .T "guardian_artworks"}}</h2>
+ {{range .Artworks}}
+ <form method="post" action="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}/visibility">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <input type="hidden" name="lang" value="{{$.Lang}}">
+  <input type="hidden" name="hidden" value="{{if .Hidden}}false{{else}}true{{end}}">
+  <p><a href="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}?lang={{$.Lang}}">{{.Title}}</a>
+   {{if .Hidden}}<button type="submit">{{call $.T "guardian_show"}}</button>{{else}}<button type="submit">{{call $.T "guardian_hide"}}</button>{{end}}</p>
+ </form>
+ {{else}}<p>{{call .T "guardian_no_artworks"}}</p>{{end}}
 </main>
 </body>
 </html>

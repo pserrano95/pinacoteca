@@ -93,5 +93,9 @@
   "guardian_approved": "Galerías aprobadas",
   "guardian_approve": "Aprobar",
   "guardian_none_pending": "No hay galerías pendientes de aprobación.",
-  "guardian_none_approved": "Todavía no hay galerías aprobadas."
+  "guardian_none_approved": "Todavía no hay galerías aprobadas.",
+  "guardian_artworks": "Obras",
+  "guardian_hide": "Ocultar",
+  "guardian_show": "Mostrar",
+  "guardian_no_artworks": "Todavía no hay obras."
 }
