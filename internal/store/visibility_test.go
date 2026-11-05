@@ -133,7 +133,7 @@ func TestConcurrentArtworkVisibilityAcrossStores(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".tmp") {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
 			t.Fatalf("temporary file leaked: %s", entry.Name())
 		}
 	}
