@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/pserrano95/pinacoteca/internal/imageutil"
 )
 
 // Date is a calendar day serialized as YYYY-MM-DD in JSON.
@@ -61,13 +63,14 @@ type Artist struct {
 
 // Artwork is persisted as artwork.json beside original.* and derived/.
 type Artwork struct {
-	Hidden        bool     `json:"hidden,omitempty"`
-	SchemaVersion int      `json:"schema_version"`
-	Title         string   `json:"title"`
-	Date          Date     `json:"date"`
-	Description   string   `json:"description,omitempty"`
-	Tags          []string `json:"tags,omitempty"`
-	GiftedTo      string   `json:"gifted_to,omitempty"`
+	Crop          *imageutil.Crop `json:"crop,omitempty"`
+	Hidden        bool            `json:"hidden,omitempty"`
+	SchemaVersion int             `json:"schema_version"`
+	Title         string          `json:"title"`
+	Date          Date            `json:"date"`
+	Description   string          `json:"description,omitempty"`
+	Tags          []string        `json:"tags,omitempty"`
+	GiftedTo      string          `json:"gifted_to,omitempty"`
 }
 
 // ArtworkRecord is an artwork plus resolved paths and artist context.
@@ -78,6 +81,7 @@ type ArtworkRecord struct {
 	Dir          string
 	OriginalName string
 	OriginalPath string
+	DisplayPath  string
 	ThumbPath    string
 	Meta         Artwork
 	AgeYears     int

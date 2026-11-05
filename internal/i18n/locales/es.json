@@ -35,7 +35,7 @@
   "artwork_description": "Descripción",
   "artwork_tags": "Etiquetas",
   "artwork_gifted_to": "Regalado a",
-  "artwork_original": "Original",
+  "artwork_original": "Ver original",
   "error_generic": "Algo ha fallado.",
   "error_not_image": "El fichero no es una imagen permitida.",
   "error_before_birth": "La fecha de la obra es anterior al nacimiento del artista.",
@@ -97,5 +97,12 @@
   "guardian_artworks": "Obras",
   "guardian_hide": "Ocultar",
   "guardian_show": "Mostrar",
-  "guardian_no_artworks": "Todavía no hay obras."
+  "guardian_no_artworks": "Todavía no hay obras.",
+  "error_crop": "Recorte no válido. Vuelve a elegir la imagen y el recorte.",
+  "crop_help": "Arrastra la selección para moverla. Arrastra una esquina para cambiar su tamaño.",
+  "crop_preview": "Selección del recorte sobre tu imagen",
+  "crop_rotate": "Girar 90°",
+  "crop_straighten": "Enderezar",
+  "crop_reset": "Restablecer recorte",
+  "crop_load_error": "Vista previa no disponible. Puedes subir la imagen original."
 }

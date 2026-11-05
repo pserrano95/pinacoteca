@@ -2,6 +2,7 @@ package web
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -95,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 		"POST /artworks/new":                               http.HandlerFunc(s.artworkNewPOST),
 		"GET /artists/{artist}/artworks/{folder}":          http.HandlerFunc(s.artworkGET),
 		"GET /artists/{artist}/artworks/{folder}/original": http.HandlerFunc(s.serveOriginal),
+		"GET /artists/{artist}/artworks/{folder}/display":  http.HandlerFunc(s.serveDisplay),
 		"GET /artists/{artist}/artworks/{folder}/thumb":    http.HandlerFunc(s.serveThumb),
 		"POST /logout":                                     http.HandlerFunc(s.logout),
 	}
@@ -159,6 +161,7 @@ type choice struct {
 }
 
 type artworkView struct {
+	HasDisplay  bool
 	Hidden      bool
 	ArtistSlug  string
 	ArtistName  string
@@ -664,7 +667,14 @@ func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "artwork_new", data)
 		return
 	}
+	crop, err := parseCrop(r)
+	if err != nil {
+		data.Error = data.T("error_crop")
+		s.render(w, "artwork_new", data)
+		return
+	}
 	_, err = s.Store.CreateArtwork(store.CreateArtworkInput{
+		Crop:        crop,
 		ArtistSlug:  artistSlug,
 		Title:       r.FormValue("title"),
 		Date:        date.Time,
@@ -719,6 +729,7 @@ func (s *Server) artworkGET(w http.ResponseWriter, r *http.Request) {
 		GiftedTo:    row.GiftedTo,
 		AgeYears:    row.AgeYears,
 		HasThumb:    fileExists(thumb),
+		HasDisplay:  fileExists(filepath.Join(filepath.Dir(thumb), "display.jpg")),
 	}
 	data.Artwork = view
 	data.Title = view.Title
@@ -1089,4 +1100,47 @@ func (s *Server) artworkVisibilityPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/artists/"+a.Slug+"/galleries?lang="+s.page(w, r).Lang, http.StatusSeeOther)
+}
+
+func (s *Server) serveDisplay(w http.ResponseWriter, r *http.Request) {
+	if s.hiddenArtist(w, r, r.PathValue("artist")) {
+		return
+	}
+	rec, err := s.Store.LoadArtwork(r.PathValue("artist"), r.PathValue("folder"))
+	if err != nil || rec.DisplayPath == "" || !s.canSeeHidden(r, rec.ArtistSlug, rec.Meta.Hidden) {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, rec.DisplayPath)
+}
+
+// Empty controls are the no-JavaScript path; otherwise all six are required.
+func parseCrop(r *http.Request) (*imageutil.Crop, error) {
+	keys := []string{"quarter_turns", "straighten_deg", "x", "y", "w", "h"}
+	values := make([]float64, len(keys))
+	present := false
+	for _, key := range keys {
+		if r.FormValue("crop_"+key) != "" {
+			present = true
+		}
+	}
+	if !present {
+		return nil, nil
+	}
+	for i, key := range keys {
+		raw := r.MultipartForm.Value["crop_"+key]
+		if len(raw) != 1 || raw[0] == "" {
+			return nil, fmt.Errorf("incomplete crop")
+		}
+		v, err := strconv.ParseFloat(raw[0], 64)
+		if err != nil {
+			return nil, err
+		}
+		values[i] = v
+	}
+	if values[0] != float64(int(values[0])) {
+		return nil, fmt.Errorf("invalid quarter turns")
+	}
+	c := &imageutil.Crop{QuarterTurns: int(values[0]), StraightenDeg: values[1], Rect: imageutil.Rect{X: values[2], Y: values[3], W: values[4], H: values[5]}}
+	return c, c.Validate()
 }

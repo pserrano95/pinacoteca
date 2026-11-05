@@ -383,7 +383,7 @@ func TestOriginalAndThumbRequireSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := srv.Handler()
-	for _, suffix := range []string{"/original", "/thumb"} {
+	for _, suffix := range []string{"/original", "/thumb", "/display"} {
 		path := "/artists/" + art.ArtistSlug + "/artworks/" + art.Folder + suffix
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()

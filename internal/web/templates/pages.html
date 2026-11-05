@@ -209,7 +209,7 @@
     {{if not .Artists}}
       <p class="empty">{{call .T "error_no_artists"}}</p>
     {{else}}
-    <form method="post" action="/artworks/new" enctype="multipart/form-data">
+    <form method="post" action="/artworks/new" enctype="multipart/form-data" style="grid-template-columns:minmax(0,1fr)">
       <input type="hidden" name="lang" value="{{.Lang}}">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <label>{{call .T "upload_artist"}}
@@ -221,8 +221,24 @@
         </select>
       </label>
       <label>{{call .T "upload_image"}}
-        <input type="file" name="image" accept="image/jpeg,image/png,image/gif" required>
+        <input type="file" name="image" accept="image/jpeg,image/png,image/gif" capture="environment" style="width:100%;min-width:0;max-width:100%" required>
       </label>
+      <div id="capture-editor" hidden>
+        <p>{{call .T "crop_help"}}</p>
+        <canvas aria-label="{{call .T "crop_preview"}}" style="display:block;max-width:100%;height:auto;touch-action:none"></canvas>
+        <button type="button" id="capture-rotate">{{call .T "crop_rotate"}}</button>
+        <label>{{call .T "crop_straighten"}} <output id="capture-angle">0°</output>
+          <input id="capture-straighten" type="range" min="-15" max="15" step="0.5" value="0">
+        </label>
+        <button type="button" id="capture-reset">{{call .T "crop_reset"}}</button>
+      </div>
+      <p id="capture-error" hidden>{{call .T "crop_load_error"}}</p>
+      <input type="hidden" name="crop_quarter_turns">
+      <input type="hidden" name="crop_straighten_deg">
+      <input type="hidden" name="crop_x">
+      <input type="hidden" name="crop_y">
+      <input type="hidden" name="crop_w">
+      <input type="hidden" name="crop_h">
       <label>{{call .T "upload_artwork_title"}}
         <input name="title">
       </label>
@@ -242,6 +258,7 @@
     </form>
     {{end}}
   </main>
+<script src="/static/capture.js" defer></script>
 </body>
 </html>
 {{end}}
@@ -256,7 +273,8 @@
       <p><a href="/?lang={{.Lang}}">{{call .T "back_gallery"}}</a></p>
       <h1>{{.Artwork.Title}}</h1>
       <p class="muted">{{.ByLine}} · {{.AgeLine}}</p>
-      <img src="/artists/{{.Artwork.ArtistSlug}}/artworks/{{.Artwork.Folder}}/original" alt="">
+      <img src="/artists/{{.Artwork.ArtistSlug}}/artworks/{{.Artwork.Folder}}/{{if .Artwork.HasDisplay}}display{{else}}original{{end}}" alt="">
+      <p><a href="/artists/{{.Artwork.ArtistSlug}}/artworks/{{.Artwork.Folder}}/original">{{call .T "artwork_original"}}</a></p>
       <dl>
         <dt>{{call .T "artwork_date"}}</dt><dd>{{.Artwork.Date}}</dd>
         {{if .Artwork.Description}}

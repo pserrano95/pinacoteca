@@ -135,6 +135,7 @@ func (s *Store) ListArtists() ([]Artist, error) {
 
 // CreateArtworkInput is the upload payload (original bytes unchanged on disk).
 type CreateArtworkInput struct {
+	Crop        *imageutil.Crop
 	ArtistSlug  string
 	Title       string
 	Date        time.Time
@@ -147,6 +148,11 @@ type CreateArtworkInput struct {
 // CreateArtwork validates, writes original + artwork.json + derived thumb, and returns the record.
 // On any failure after creating the folder, the folder is removed so nothing is left on disk.
 func (s *Store) CreateArtwork(in CreateArtworkInput) (*ArtworkRecord, error) {
+	if in.Crop != nil {
+		if err := in.Crop.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	artist, err := s.LoadArtist(in.ArtistSlug)
 	if err != nil {
 		return nil, fmt.Errorf("artist: %w", err)
@@ -194,6 +200,7 @@ func (s *Store) CreateArtwork(in CreateArtworkInput) (*ArtworkRecord, error) {
 	}
 
 	meta := Artwork{
+		Crop:          in.Crop,
 		SchemaVersion: SchemaVersion,
 		Title:         title,
 		Date:          artworkDate,
@@ -206,20 +213,12 @@ func (s *Store) CreateArtwork(in CreateArtworkInput) (*ArtworkRecord, error) {
 	}
 
 	thumbPath := filepath.Join(dir, DerivedDir, ThumbName)
-	orientation, err := imageutil.WriteThumbnail(originalPath, thumbPath, 400)
-	if err != nil {
-		return nil, fmt.Errorf("thumbnail: %w", err)
-	}
-	thumbMeta := map[string]any{
-		"schema_version": SchemaVersion,
-		"kind":           "thumbnail",
-		"source":         originalName,
-		"max_edge":       400,
-		"format":         "jpeg",
-		"orientation":    orientation,
-	}
-	if err := writeJSON(filepath.Join(dir, DerivedDir, ThumbMetaName), thumbMeta); err != nil {
+	if err := s.regenerateDerived(originalPath, meta); err != nil {
 		return nil, err
+	}
+	displayPath := ""
+	if meta.Crop != nil {
+		displayPath = filepath.Join(dir, DerivedDir, "display.jpg")
 	}
 
 	years, _ := age.At(artist.BirthDate.Time, artworkDate.Time)
@@ -231,6 +230,7 @@ func (s *Store) CreateArtwork(in CreateArtworkInput) (*ArtworkRecord, error) {
 		Dir:          dir,
 		OriginalName: originalName,
 		OriginalPath: originalPath,
+		DisplayPath:  displayPath,
 		ThumbPath:    thumbPath,
 		Meta:         meta,
 		AgeYears:     years,
@@ -294,6 +294,11 @@ func (s *Store) loadArtworkDir(artist Artist, folder string) (*ArtworkRecord, er
 	if err := readJSON(filepath.Join(dir, ArtworkFile), &meta); err != nil {
 		return nil, err
 	}
+	if meta.Crop != nil {
+		if err := meta.Crop.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	originalName, originalPath, err := findOriginal(dir)
 	if err != nil {
 		return nil, err
@@ -306,6 +311,10 @@ func (s *Store) loadArtworkDir(artist Artist, folder string) (*ArtworkRecord, er
 	if _, err := os.Stat(thumbPath); err != nil {
 		thumbPath = ""
 	}
+	displayPath := filepath.Join(dir, DerivedDir, "display.jpg")
+	if _, err := os.Stat(displayPath); err != nil {
+		displayPath = ""
+	}
 	return &ArtworkRecord{
 		ArtistSlug:   artist.Slug,
 		ArtistName:   artist.Name,
@@ -313,6 +322,7 @@ func (s *Store) loadArtworkDir(artist Artist, folder string) (*ArtworkRecord, er
 		Dir:          dir,
 		OriginalName: originalName,
 		OriginalPath: originalPath,
+		DisplayPath:  displayPath,
 		ThumbPath:    thumbPath,
 		Meta:         meta,
 		AgeYears:     years,
@@ -398,4 +408,43 @@ func readJSON(path string, v any) error {
 		return err
 	}
 	return json.Unmarshal(data, v)
+}
+
+// RegenerateDerived reads only the archive original and artwork.json.
+func (s *Store) RegenerateDerived(artist, folder string) error {
+	if err := safeSlug(artist); err != nil {
+		return err
+	}
+	if err := safeSlug(folder); err != nil {
+		return err
+	}
+	dir := filepath.Join(s.ArtistsRoot(), artist, folder)
+	var meta Artwork
+	if err := readJSON(filepath.Join(dir, ArtworkFile), &meta); err != nil {
+		return err
+	}
+	_, originalPath, err := findOriginal(dir)
+	if err != nil {
+		return err
+	}
+	return s.regenerateDerived(originalPath, meta)
+}
+
+func (s *Store) regenerateDerived(originalPath string, meta Artwork) error {
+	dir := filepath.Join(filepath.Dir(originalPath), DerivedDir)
+	var orientation int
+	var err error
+	if meta.Crop != nil {
+		orientation, err = imageutil.WriteCropped(originalPath, dir, *meta.Crop)
+	} else {
+		orientation, err = imageutil.WriteThumbnail(originalPath, filepath.Join(dir, ThumbName), 400)
+	}
+	if err != nil {
+		return err
+	}
+	thumbMeta := map[string]any{"schema_version": SchemaVersion, "kind": "thumbnail", "source": filepath.Base(originalPath), "max_edge": 400, "format": "jpeg", "orientation": orientation}
+	if meta.Crop != nil {
+		thumbMeta["crop"] = meta.Crop
+	}
+	return writeJSON(filepath.Join(dir, ThumbMetaName), thumbMeta)
 }
