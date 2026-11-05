@@ -339,7 +339,7 @@
   <input type="hidden" name="csrf" value="{{$.CSRF}}">
   <input type="hidden" name="lang" value="{{$.Lang}}">
   <input type="hidden" name="hidden" value="{{if .Hidden}}false{{else}}true{{end}}">
-  <p><a href="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}?lang={{$.Lang}}">{{.Title}}</a>
+  <p>{{.Title}}
    {{if .Hidden}}<button type="submit">{{call $.T "guardian_show"}}</button>{{else}}<button type="submit">{{call $.T "guardian_hide"}}</button>{{end}}</p>
  </form>
  {{else}}<p>{{call .T "guardian_no_artworks"}}</p>{{end}}

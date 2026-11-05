@@ -751,17 +751,13 @@ func (s *Server) serveThumb(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, rec.ThumbPath)
 }
 
-// hiddenArtist permits guardian inspection or shared gallery access. Otherwise
+// hiddenArtist permits shared gallery access. Otherwise
 // it writes 404 (500 when the index cannot answer) and returns true.
 func (s *Server) hiddenArtist(w http.ResponseWriter, r *http.Request, artistSlug string) bool {
 	m, ok := s.sessionMember(r)
 	if !ok {
 		http.NotFound(w, r)
 		return true
-	}
-	// Guardians may inspect works from their management page without joining a gallery.
-	if a, err := s.Store.LoadArtist(artistSlug); err == nil && a.IsGuardian(m.ID) {
-		return false
 	}
 	see, err := s.Index.CanSeeArtist(m.ID, artistSlug)
 	if err != nil {

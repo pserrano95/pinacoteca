@@ -59,7 +59,7 @@ func TestHiddenArtworkHideShowForViewerAndOwner(t *testing.T) {
 	}
 	for _, suffix := range []string{"", "/original", "/thumb"} {
 		status, _ := getStatus(t, w.guardian, strings.TrimSuffix(w.visibilityURL(), "/visibility")+suffix)
-		if status != 200 {
+		if status != 404 {
 			t.Fatalf("guardian without gallery artwork%s: %d", suffix, status)
 		}
 	}
