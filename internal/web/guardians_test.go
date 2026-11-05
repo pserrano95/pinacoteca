@@ -267,6 +267,5 @@ func TestGuardianWithoutGalleryMembershipCanApproveFromHomeLink(t *testing.T) {
 		t.Fatalf("guardian without membership approval: %d %s", status, body)
 	}
 	w.assertVisible(t, w.other, true)
-	// Tutorship permits approval; it does not create a gallery membership.
 	w.assertVisible(t, c, false)
 }

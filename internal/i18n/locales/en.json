@@ -93,5 +93,9 @@
   "guardian_approved": "Approved galleries",
   "guardian_approve": "Approve",
   "guardian_none_pending": "No galleries awaiting approval.",
-  "guardian_none_approved": "No approved galleries yet."
+  "guardian_none_approved": "No approved galleries yet.",
+  "guardian_artworks": "Artworks",
+  "guardian_hide": "Hide",
+  "guardian_show": "Show",
+  "guardian_no_artworks": "No artworks yet."
 }

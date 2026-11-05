@@ -50,6 +50,12 @@ func (ix *Index) Path() string { return ix.path }
 
 func (ix *Index) migrate() error {
 	_, err := ix.db.Exec(`
+CREATE TABLE IF NOT EXISTS artwork_visibility (
+ artist_slug TEXT NOT NULL,
+ folder TEXT NOT NULL,
+ hidden INTEGER NOT NULL,
+ PRIMARY KEY (artist_slug, folder)
+);
 CREATE TABLE IF NOT EXISTS artist_permissions (
  artist_slug TEXT PRIMARY KEY,
  guardians TEXT NOT NULL,
@@ -141,7 +147,7 @@ func (ix *Index) rebuild(st *store.Store, keepSessions bool) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	tables := []string{"artist_permissions", "gallery_members", "gallery_artists", "galleries", "credentials", "members", "artworks", "artists"}
+	tables := []string{"artwork_visibility", "artist_permissions", "gallery_members", "gallery_artists", "galleries", "credentials", "members", "artworks", "artists"}
 	if !keepSessions {
 		tables = append([]string{"sessions"}, tables...)
 	}
@@ -190,6 +196,9 @@ func (ix *Index) rebuild(st *store.Store, keepSessions bool) error {
 			r.Meta.Description, string(tagsJSON), r.Meta.GiftedTo,
 			r.OriginalName, r.AgeYears, r.Meta.SchemaVersion,
 		); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO artwork_visibility (artist_slug, folder, hidden) VALUES (?, ?, ?)`, r.ArtistSlug, r.Folder, boolInt(r.Meta.Hidden)); err != nil {
 			return err
 		}
 	}
@@ -269,6 +278,7 @@ type ArtistRow struct {
 
 // ArtworkRow is an indexed artwork with computed age.
 type ArtworkRow struct {
+	Hidden        bool
 	ArtistSlug    string
 	ArtistName    string
 	Folder        string
@@ -337,9 +347,10 @@ func (ix *Index) GetArtist(slug string) (*ArtistRow, error) {
 func (ix *Index) ListArtworks() ([]ArtworkRow, error) {
 	rows, err := ix.db.Query(`
 SELECT a.artist_slug, ar.name, a.folder, a.title, a.date, a.description, a.tags_json,
-       a.gifted_to, a.original_name, a.age_years, a.schema_version
+       a.gifted_to, a.original_name, a.age_years, a.schema_version, COALESCE(v.hidden, 0)
 FROM artworks a
 JOIN artists ar ON ar.slug = a.artist_slug
+LEFT JOIN artwork_visibility v ON v.artist_slug = a.artist_slug AND v.folder = a.folder
 ORDER BY a.date DESC, a.folder ASC`)
 	if err != nil {
 		return nil, err
@@ -351,9 +362,10 @@ ORDER BY a.date DESC, a.folder ASC`)
 func (ix *Index) ListArtworksByArtist(artistSlug string) ([]ArtworkRow, error) {
 	rows, err := ix.db.Query(`
 SELECT a.artist_slug, ar.name, a.folder, a.title, a.date, a.description, a.tags_json,
-       a.gifted_to, a.original_name, a.age_years, a.schema_version
+       a.gifted_to, a.original_name, a.age_years, a.schema_version, COALESCE(v.hidden, 0)
 FROM artworks a
 JOIN artists ar ON ar.slug = a.artist_slug
+LEFT JOIN artwork_visibility v ON v.artist_slug = a.artist_slug AND v.folder = a.folder
 WHERE a.artist_slug = ?
 ORDER BY a.date DESC, a.folder ASC`, artistSlug)
 	if err != nil {
@@ -366,9 +378,10 @@ ORDER BY a.date DESC, a.folder ASC`, artistSlug)
 func (ix *Index) GetArtwork(artistSlug, folder string) (*ArtworkRow, error) {
 	row := ix.db.QueryRow(`
 SELECT a.artist_slug, ar.name, a.folder, a.title, a.date, a.description, a.tags_json,
-       a.gifted_to, a.original_name, a.age_years, a.schema_version
+       a.gifted_to, a.original_name, a.age_years, a.schema_version, COALESCE(v.hidden, 0)
 FROM artworks a
 JOIN artists ar ON ar.slug = a.artist_slug
+LEFT JOIN artwork_visibility v ON v.artist_slug = a.artist_slug AND v.folder = a.folder
 WHERE a.artist_slug = ? AND a.folder = ?`, artistSlug, folder)
 	list, err := scanArtworkRow(row)
 	if err != nil {
@@ -398,7 +411,7 @@ func scanArtworkRow(row scannable) (ArtworkRow, error) {
 	var dateStr, tagsJSON string
 	if err := row.Scan(
 		&r.ArtistSlug, &r.ArtistName, &r.Folder, &r.Title, &dateStr, &r.Description, &tagsJSON,
-		&r.GiftedTo, &r.OriginalName, &r.AgeYears, &r.SchemaVersion,
+		&r.GiftedTo, &r.OriginalName, &r.AgeYears, &r.SchemaVersion, &r.Hidden,
 	); err != nil {
 		return r, err
 	}
@@ -499,7 +512,7 @@ func EqualSnapshots(a, b Snapshot) error {
 	for i := range a.Artworks {
 		aa, bb := a.Artworks[i], b.Artworks[i]
 		if aa.ArtistSlug != bb.ArtistSlug || aa.Folder != bb.Folder ||
-			aa.Title != bb.Title || !aa.Date.Equal(bb.Date) ||
+			aa.Hidden != bb.Hidden || aa.Title != bb.Title || !aa.Date.Equal(bb.Date) ||
 			aa.Description != bb.Description || aa.GiftedTo != bb.GiftedTo ||
 			aa.AgeYears != bb.AgeYears || aa.SchemaVersion != bb.SchemaVersion ||
 			aa.OriginalName != bb.OriginalName || !tagsEqual(aa.Tags, bb.Tags) {
