@@ -8,9 +8,7 @@ age, what it shows, who received it — and exhibited only to the relatives the
 child's family chooses. The archive is stored as plain files that stay
 readable without Pinacoteca.
 
-**Status:** H0 skeleton, passkey accounts, and galleries with roles. The
-gallery is closed until someone is invited. Works are shown only to members
-of a gallery that includes the artist.
+**Status:** Passkey accounts, galleries with roles, artist guardians, JPEG EXIF orientation, PWA offline support, and standalone HTML export. The gallery is closed until someone is invited. Works are shown only to members of a gallery that includes the artist.
 
 ## Run locally
 
@@ -38,11 +36,29 @@ go run ./cmd/pinacoteca reindex --data ./data
 go run ./cmd/pinacoteca export --data ./data --artist ARTIST_SLUG --out ./export-artist
 ```
 
+CLI commands and flags:
+- `go run ./cmd/pinacoteca serve --data ./data [--addr :8080] [--base-url URL] [--rp-id HOST] [--origin URL]`
+- `go run ./cmd/pinacoteca invite --data ./data --name NAME [--base-url URL]`
+- `go run ./cmd/pinacoteca gallery create --data ./data --name NAME [--wall-colour COLOUR]`
+- `go run ./cmd/pinacoteca gallery add-artist --data ./data --gallery SLUG --artist SLUG`
+- `go run ./cmd/pinacoteca gallery add-member --data ./data --gallery SLUG --member ID --role ROLE`
+- `go run ./cmd/pinacoteca artist add-guardian --data ./data ARTIST_SLUG MEMBER_ID`
+- `go run ./cmd/pinacoteca export --data ./data --artist SLUG --out DIR [--lang es|en]`
+- `go run ./cmd/pinacoteca reindex --data ./data`
+
 ## Check
 
 ```bash
 make verify
 ```
+
+Targets:
+- `make verify` — run the full test suite and checks (fmt, vet, test, check-runtime-alpine, docker-build).
+- `make fmt` — check that all Go files are formatted (`gofmt`).
+- `make vet` — run Go static analyzer (`go vet ./...`).
+- `make test` — run unit and integration tests (`go test ./...`).
+- `make check-runtime-alpine` — verify the Alpine runtime version in Dockerfile is actively supported.
+- `make docker-build` — build local container image (`pinacoteca:local`).
 
 ## Docker
 
@@ -53,6 +69,7 @@ docker run --rm -p 8080:8080 -v pinacoteca-data:/data pinacoteca
 
 - What it is and for whom: [`CONTEXT.md`](CONTEXT.md)
 - Why it is built this way: [`docs/DECISIONS.md`](docs/DECISIONS.md)
+- Architecture and codebase layout: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Where it is going: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - What is still open: [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md)
 
