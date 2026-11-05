@@ -35,7 +35,7 @@
   "artwork_description": "Description",
   "artwork_tags": "Tags",
   "artwork_gifted_to": "Gifted to",
-  "artwork_original": "Original",
+  "artwork_original": "View original",
   "error_generic": "Something went wrong.",
   "error_not_image": "The file is not an allowed image.",
   "error_before_birth": "The artwork date is before the artist's date of birth.",
@@ -97,5 +97,12 @@
   "guardian_artworks": "Artworks",
   "guardian_hide": "Hide",
   "guardian_show": "Show",
-  "guardian_no_artworks": "No artworks yet."
+  "guardian_no_artworks": "No artworks yet.",
+  "error_crop": "Invalid crop. Choose the image and crop again.",
+  "crop_help": "Drag the selection to move it. Drag a corner to resize.",
+  "crop_preview": "Crop selection on your image",
+  "crop_rotate": "Rotate 90°",
+  "crop_straighten": "Straighten",
+  "crop_reset": "Reset crop",
+  "crop_load_error": "Preview unavailable. You can still upload the original image."
 }

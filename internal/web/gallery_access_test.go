@@ -400,7 +400,7 @@ func TestGalleryPermissionsSurviveReindex(t *testing.T) {
 	}
 }
 
-func postArtwork(t *testing.T, c *http.Client, base, title, artist string) (int, string) {
+func postArtwork(t *testing.T, c *http.Client, base, title, artist string, extra ...map[string]string) (int, string) {
 	t.Helper()
 	status, page := getStatus(t, c, base+"/")
 	if status != http.StatusOK {
@@ -418,6 +418,13 @@ func postArtwork(t *testing.T, c *http.Client, base, title, artist string) (int,
 	} {
 		if err := mw.WriteField(k, v); err != nil {
 			t.Fatal(err)
+		}
+	}
+	for _, fields := range extra {
+		for k, v := range fields {
+			if err := mw.WriteField(k, v); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	part, err := mw.CreateFormFile("image", "drawing.png")
