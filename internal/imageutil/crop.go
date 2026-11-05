@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/jpeg"
 	"math"
 	"os"
@@ -79,11 +80,8 @@ func ApplyCrop(src image.Image, c Crop) (image.Image, error) {
 	x0, y0 := int(math.Floor(c.Rect.X*float64(w))), int(math.Floor(c.Rect.Y*float64(h)))
 	x1, y1 := min(w, int(math.Ceil((c.Rect.X+c.Rect.W)*float64(w)))), min(h, int(math.Ceil((c.Rect.Y+c.Rect.H)*float64(h))))
 	dst := image.NewRGBA(image.Rect(0, 0, x1-x0, y1-y0))
-	for y := 0; y < y1-y0; y++ {
-		for x := 0; x < x1-x0; x++ {
-			dst.Set(x, y, src.At(b.Min.X+x0+x, b.Min.Y+y0+y))
-		}
-	}
+	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+	draw.Draw(dst, dst.Bounds(), src, b.Min.Add(image.Pt(x0, y0)), draw.Over)
 	return dst, nil
 }
 

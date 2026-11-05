@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"image/png"
 	"math"
 	"os"
 	"path/filepath"
@@ -121,6 +122,44 @@ func abs(v int) int {
 		return -v
 	}
 	return v
+}
+
+func TestCropTransparentPNGOnWhite(t *testing.T) {
+	src := image.NewNRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 32; x < 64; x++ {
+			src.SetNRGBA(x, y, color.NRGBA{R: 255, A: 128})
+		}
+	}
+	var data bytes.Buffer
+	if err := png.Encode(&data, src); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	original := filepath.Join(dir, "original.png")
+	if err := os.WriteFile(original, data.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := imageutil.WriteCropped(original, dir, imageutil.Crop{Rect: imageutil.Rect{W: 1, H: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "display.jpg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := jpeg.Decode(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x    int
+		want color.RGBA
+	}{{16, color.RGBA{255, 255, 255, 255}}, {48, color.RGBA{255, 127, 127, 255}}} {
+		got := color.RGBAModel.Convert(img.At(tc.x, 32)).(color.RGBA)
+		if abs(int(got.R)-int(tc.want.R)) > 5 || abs(int(got.G)-int(tc.want.G)) > 5 || abs(int(got.B)-int(tc.want.B)) > 5 {
+			t.Fatalf("display.jpg pixel (%d, 32): got %v want %v (tolerance 5)", tc.x, got, tc.want)
+		}
+	}
 }
 
 func TestCropValidation(t *testing.T) {
