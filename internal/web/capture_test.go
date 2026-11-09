@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +17,33 @@ import (
 
 func cropFields() map[string]string {
 	return map[string]string{"crop_quarter_turns": "1", "crop_straighten_deg": "10", "crop_x": "0", "crop_y": "0", "crop_w": "0.5", "crop_h": "0.5"}
+}
+
+func validCrop() map[string]string {
+	return cropFields()
+}
+
+func newMultipartCropRequest(t *testing.T, fields map[string]string) *http.Request {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, "/artworks", &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if err := req.ParseMultipartForm(32 << 20); err != nil {
+		t.Fatal(err)
+	}
+	return req
 }
 
 func archiveBytes(t *testing.T, root string) map[string]string {
@@ -62,6 +90,51 @@ func TestCropUploadInvalidWritesNothing(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCropUploadMissingKeyWritesNothing(t *testing.T) {
+	w := newGalleryWorld(t)
+	client := memberClient(t, w.ix, w.ts.URL, w.contributorID)
+	keys := []string{
+		"crop_quarter_turns",
+		"crop_straighten_deg",
+		"crop_x",
+		"crop_y",
+		"crop_w",
+		"crop_h",
+	}
+	for _, missing := range keys {
+		t.Run(missing, func(t *testing.T) {
+			fields := validCrop()
+			delete(fields, missing)
+
+			req := newMultipartCropRequest(t, fields)
+			if crop, err := parseCrop(req); err == nil || !strings.Contains(err.Error(), "incomplete crop") {
+				t.Fatalf("parseCrop with missing %s: got crop=%v err=%v; want incomplete crop", missing, crop, err)
+			}
+
+			before := archiveBytes(t, w.st.ArtistsRoot())
+			status, body := postArtwork(t, client, w.ts.URL, "Missing_"+missing, w.ownArtist, fields)
+			if status != 200 || !strings.Contains(body, "Invalid crop.") {
+				t.Fatalf("invalid response: %d %s", status, body)
+			}
+			after := archiveBytes(t, w.st.ArtistsRoot())
+			if len(before) != len(after) {
+				t.Fatal("missing crop created files")
+			}
+			for path, raw := range before {
+				if after[path] != raw {
+					t.Fatal("missing crop modified archive", path)
+				}
+			}
+		})
+	}
+	t.Run("validCrop", func(t *testing.T) {
+		status, body := postArtwork(t, client, w.ts.URL, "ValidCropControl", w.ownArtist, validCrop())
+		if status != 303 {
+			t.Fatalf("valid crop rejected: %d %s", status, body)
+		}
+	})
 }
 
 func TestCropUploadAndReindex(t *testing.T) {
