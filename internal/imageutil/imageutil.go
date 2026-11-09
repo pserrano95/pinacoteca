@@ -256,6 +256,7 @@ func resize(src image.Image, maxEdge int) image.Image {
 	if nw == w && nh == h {
 		return src
 	}
+	nw, nh = max(1, nw), max(1, nh)
 	dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
 	for y := 0; y < nh; y++ {
 		for x := 0; x < nw; x++ {

@@ -111,6 +111,7 @@ func (s *Server) routeSpecs() []routeSpec {
 		{http.MethodPost, "/artworks/new", false, "unauthorized"},
 		{http.MethodGet, "/artists/{artist}/artworks/{folder}", false, "redirect"},
 		{http.MethodGet, "/artists/{artist}/artworks/{folder}/original", false, "unauthorized"},
+		{http.MethodGet, "/artists/{artist}/artworks/{folder}/display", false, "unauthorized"},
 		{http.MethodGet, "/artists/{artist}/artworks/{folder}/thumb", false, "unauthorized"},
 		{http.MethodPost, "/logout", false, "unauthorized"},
 	}
