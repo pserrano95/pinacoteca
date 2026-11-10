@@ -94,6 +94,7 @@
   "guardian_approve": "Approve",
   "guardian_none_pending": "No galleries awaiting approval.",
   "guardian_none_approved": "No approved galleries yet.",
+  "guardian_export": "Download all their artworks",
   "guardian_artworks": "Artworks",
   "guardian_hide": "Hide",
   "guardian_show": "Show",

@@ -351,6 +351,7 @@
  {{else}}<p>{{call .T "guardian_none_pending"}}</p>{{end}}
  <h2>{{call .T "guardian_approved"}}</h2>
  {{range .ApprovedGalleries}}<p>{{.Name}}</p>{{else}}<p>{{call .T "guardian_none_approved"}}</p>{{end}}
+ <p><a href="/artists/{{.GuardianArtist}}/export?lang={{.Lang}}">{{call .T "guardian_export"}}</a></p>
  <h2>{{call .T "guardian_artworks"}}</h2>
  {{range .Artworks}}
  <form method="post" action="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}/visibility">
