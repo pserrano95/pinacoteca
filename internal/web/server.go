@@ -1,9 +1,11 @@
 package web
 
 import (
+	"archive/zip"
 	"embed"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
+	"github.com/pserrano95/pinacoteca/internal/export"
 	"github.com/pserrano95/pinacoteca/internal/i18n"
 	"github.com/pserrano95/pinacoteca/internal/imageutil"
 	"github.com/pserrano95/pinacoteca/internal/index"
@@ -72,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 		panic(err)
 	}
 	handlers := map[string]http.Handler{
+		"GET /artists/{artist}/export":                        http.HandlerFunc(s.artistExportGET),
 		"POST /artists/{artist}/artworks/{folder}/visibility": http.HandlerFunc(s.artworkVisibilityPOST),
 		"GET /artists/{artist}/galleries":                     http.HandlerFunc(s.artistGalleriesGET),
 		"POST /artists/{artist}/galleries/{gallery}/approve":  http.HandlerFunc(s.artistGalleryApprovePOST),
@@ -1143,4 +1147,62 @@ func parseCrop(r *http.Request) (*imageutil.Crop, error) {
 	}
 	c := &imageutil.Crop{QuarterTurns: int(values[0]), StraightenDeg: values[1], Rect: imageutil.Rect{X: values[2], Y: values[3], W: values[4], H: values[5]}}
 	return c, c.Validate()
+}
+
+// artistExportGET prepares the complete archive before committing a ZIP response.
+func (s *Server) artistExportGET(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.guardianArtist(w, r); !ok {
+		return
+	}
+	slug := r.PathValue("artist")
+	out, err := os.MkdirTemp("", "pinacoteca-export-")
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(out)
+	if err := export.Artist(s.Store, slug, out, r.URL.Query().Get("lang")); err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="pinacoteca-%s.zip"`, slug))
+	zw := zip.NewWriter(w)
+	err = filepath.WalkDir(out, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := r.Context().Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(out, path)
+		if err != nil {
+			return err
+		}
+		name := slug + "/" + filepath.ToSlash(rel)
+		if !fs.ValidPath(name) || strings.Contains(name, `\`) {
+			return fmt.Errorf("invalid ZIP path %q", name)
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		dst, err := zw.Create(name)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(dst, f)
+		return err
+	})
+	if err == nil {
+		err = zw.Close()
+	}
+	if err != nil {
+		// Headers may already be sent: abort the download rather than finish a partial ZIP.
+		panic(http.ErrAbortHandler)
+	}
 }

@@ -413,8 +413,12 @@ func TestNonPublicRoutesRequireSession(t *testing.T) {
 	h := srv.Handler()
 	var checked int
 	visibilityChecked := false
+	exportChecked := false
 	for _, rt := range srv.routeSpecs() {
 		key := rt.Method + " " + rt.Pattern
+		if key == "GET /artists/{artist}/export" {
+			exportChecked = true
+		}
 		if key == "POST /artists/{artist}/artworks/{folder}/visibility" {
 			visibilityChecked = true
 		}
@@ -435,6 +439,9 @@ func TestNonPublicRoutesRequireSession(t *testing.T) {
 			t.Errorf("%s %s: got %d location %q, want 401 or a redirect to /login", rt.Method, path, rec.Code, rec.Header().Get("Location"))
 		}
 		checked++
+	}
+	if !exportChecked {
+		t.Fatal("export GET missing from closed routes")
 	}
 	if !visibilityChecked {
 		t.Fatal("visibility POST missing from closed routes")
