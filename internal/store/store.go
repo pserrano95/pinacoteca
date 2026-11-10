@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pserrano95/pinacoteca/internal/age"
@@ -143,11 +144,61 @@ type CreateArtworkInput struct {
 	Tags        []string
 	GiftedTo    string
 	ImageBytes  []byte
+	UploadID    string
+}
+
+// ErrInvalidUploadID is a non-empty upload id that is not 32 lowercase hex characters.
+var ErrInvalidUploadID = errors.New("invalid upload_id")
+
+// ValidUploadID reports whether id is empty or 32 lowercase hex characters.
+// Empty means "no idempotency key", which is the upload the HTML form sends.
+func ValidUploadID(id string) bool {
+	if id == "" {
+		return true
+	}
+	if len(id) != 32 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// Artist uploads share one process-wide lock per directory, same shape as
+// lockGallery: two Store values on the same data dir exclude each other.
+var (
+	artistLocksMu sync.Mutex
+	artistLocks   = map[string]*sync.Mutex{}
+)
+
+func lockArtist(path string) func() {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	} else {
+		path = filepath.Clean(path)
+	}
+	artistLocksMu.Lock()
+	mu, ok := artistLocks[path]
+	if !ok {
+		mu = &sync.Mutex{}
+		artistLocks[path] = mu
+	}
+	artistLocksMu.Unlock()
+	mu.Lock()
+	return mu.Unlock
 }
 
 // CreateArtwork validates, writes original + artwork.json + derived thumb, and returns the record.
 // On any failure after creating the folder, the folder is removed so nothing is left on disk.
+// A non-empty UploadID that this artist already has returns that artwork and writes nothing.
 func (s *Store) CreateArtwork(in CreateArtworkInput) (*ArtworkRecord, error) {
+	if !ValidUploadID(in.UploadID) {
+		return nil, ErrInvalidUploadID
+	}
 	if in.Crop != nil {
 		if err := in.Crop.Validate(); err != nil {
 			return nil, err
@@ -167,6 +218,19 @@ func (s *Store) CreateArtwork(in CreateArtworkInput) (*ArtworkRecord, error) {
 	ext, err := imageutil.DetectExt(in.ImageBytes)
 	if err != nil {
 		return nil, err
+	}
+
+	unlock := lockArtist(filepath.Join(s.ArtistsRoot(), artist.Slug))
+	defer unlock()
+	if in.UploadID != "" {
+		existing, err := s.findByUploadID(*artist, in.UploadID)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			existing.Duplicate = true
+			return existing, nil
+		}
 	}
 
 	title := strings.TrimSpace(in.Title)
@@ -202,6 +266,7 @@ func (s *Store) CreateArtwork(in CreateArtworkInput) (*ArtworkRecord, error) {
 	meta := Artwork{
 		Crop:          in.Crop,
 		SchemaVersion: SchemaVersion,
+		UploadID:      in.UploadID,
 		Title:         title,
 		Date:          artworkDate,
 		Description:   strings.TrimSpace(in.Description),
@@ -235,6 +300,29 @@ func (s *Store) CreateArtwork(in CreateArtworkInput) (*ArtworkRecord, error) {
 		Meta:         meta,
 		AgeYears:     years,
 	}, nil
+}
+
+// findByUploadID returns the artist's artwork with this id, or nil.
+// Callers hold the artist lock; the scan is the whole check-then-act.
+func (s *Store) findByUploadID(artist Artist, uploadID string) (*ArtworkRecord, error) {
+	dir := filepath.Join(s.ArtistsRoot(), artist.Slug)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		rec, err := s.loadArtworkDir(artist, e.Name())
+		if err != nil {
+			continue
+		}
+		if rec.Meta.UploadID == uploadID {
+			return rec, nil
+		}
+	}
+	return nil, nil
 }
 
 // WalkArtworks visits every artwork on disk (source of truth for reindex).

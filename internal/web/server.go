@@ -3,6 +3,8 @@ package web
 import (
 	"archive/zip"
 	"embed"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -621,11 +623,19 @@ func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	jsonClient := wantsJSON(r)
+	reject := func(data pageData) {
+		if jsonClient {
+			writeUploadJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": data.Error})
+			return
+		}
+		s.render(w, "artwork_new", data)
+	}
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
 		data := s.page(w, r)
 		data.Title = data.T("upload_title")
 		data.Error = data.T("error_generic")
-		s.render(w, "artwork_new", data)
+		reject(data)
 		return
 	}
 	data := s.page(w, r)
@@ -634,7 +644,7 @@ func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
 	artists, err := s.uploadableArtists(m.ID)
 	if err != nil {
 		data.Error = data.T("error_generic")
-		s.render(w, "artwork_new", data)
+		reject(data)
 		return
 	}
 	data.Artists = artists
@@ -644,7 +654,7 @@ func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
 		can, err := s.Index.CanUploadArtist(m.ID, artistSlug)
 		if err != nil {
 			data.Error = data.T("error_generic")
-			s.render(w, "artwork_new", data)
+			reject(data)
 			return
 		}
 		if !can {
@@ -652,32 +662,38 @@ func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	uploadID := strings.TrimSpace(r.FormValue("upload_id"))
+	if !store.ValidUploadID(uploadID) {
+		data.Error = data.T("error_upload_id")
+		reject(data)
+		return
+	}
 	date, err := store.ParseDate(r.FormValue("date"))
 	if err != nil || artistSlug == "" {
 		data.Error = data.T("error_required")
-		s.render(w, "artwork_new", data)
+		reject(data)
 		return
 	}
 	file, _, err := r.FormFile("image")
 	if err != nil {
 		data.Error = data.T("error_required")
-		s.render(w, "artwork_new", data)
+		reject(data)
 		return
 	}
 	defer file.Close()
-	bytes, err := imageutil.ReadLimited(file, maxUploadBytes)
+	raw, err := imageutil.ReadLimited(file, maxUploadBytes)
 	if err != nil {
 		data.Error = data.T("error_generic")
-		s.render(w, "artwork_new", data)
+		reject(data)
 		return
 	}
 	crop, err := parseCrop(r)
 	if err != nil {
 		data.Error = data.T("error_crop")
-		s.render(w, "artwork_new", data)
+		reject(data)
 		return
 	}
-	_, err = s.Store.CreateArtwork(store.CreateArtworkInput{
+	rec, err := s.Store.CreateArtwork(store.CreateArtworkInput{
 		Crop:        crop,
 		ArtistSlug:  artistSlug,
 		Title:       r.FormValue("title"),
@@ -685,27 +701,61 @@ func (s *Server) artworkNewPOST(w http.ResponseWriter, r *http.Request) {
 		Description: r.FormValue("description"),
 		Tags:        splitTags(r.FormValue("tags")),
 		GiftedTo:    r.FormValue("gifted_to"),
-		ImageBytes:  bytes,
+		ImageBytes:  raw,
+		UploadID:    uploadID,
 	})
 	if err != nil {
-		msg := err.Error()
-		switch {
-		case strings.Contains(msg, "not an allowed image") || strings.Contains(msg, "not a valid image"):
-			data.Error = data.T("error_not_image")
-		case strings.Contains(msg, "before birth"):
-			data.Error = data.T("error_before_birth")
-		default:
-			data.Error = data.T("error_generic")
+		if errors.Is(err, store.ErrInvalidUploadID) {
+			data.Error = data.T("error_upload_id")
+		} else {
+			msg := err.Error()
+			switch {
+			case strings.Contains(msg, "not an allowed image") || strings.Contains(msg, "not a valid image"):
+				data.Error = data.T("error_not_image")
+			case strings.Contains(msg, "before birth"):
+				data.Error = data.T("error_before_birth")
+			default:
+				data.Error = data.T("error_generic")
+			}
 		}
-		s.render(w, "artwork_new", data)
+		reject(data)
 		return
 	}
 	if err := s.Index.RebuildKeepingSessions(s.Store); err != nil {
 		data.Error = data.T("error_generic")
-		s.render(w, "artwork_new", data)
+		reject(data)
+		return
+	}
+	if jsonClient {
+		status := http.StatusCreated
+		if rec.Duplicate {
+			status = http.StatusOK
+		}
+		writeUploadJSON(w, status, map[string]string{"artist": rec.ArtistSlug, "folder": rec.Folder})
 		return
 	}
 	http.Redirect(w, r, "/?lang="+lang+"&flash=upload_success", http.StatusSeeOther)
+}
+
+// wantsJSON is true when the client asked for application/json.
+// The HTML form sends no Accept of that type, so it stays a redirect or a repaint.
+func wantsJSON(r *http.Request) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept"), ",") {
+		media := strings.TrimSpace(part)
+		if i := strings.Index(media, ";"); i >= 0 {
+			media = strings.TrimSpace(media[:i])
+		}
+		if strings.EqualFold(media, "application/json") {
+			return true
+		}
+	}
+	return false
+}
+
+func writeUploadJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func (s *Server) artworkGET(w http.ResponseWriter, r *http.Request) {

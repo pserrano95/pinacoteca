@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
   <script src="/static/pwa.js" defer></script>
+  <script src="/static/upload-queue.js" defer></script>
 </head>
 {{end}}
 
@@ -38,6 +39,7 @@
         <a href="?lang=en">{{call .T "lang_en"}}</a>
       </span>
     </nav>
+    <p id="upload-queue" class="flash" hidden data-pending="{{call .T "upload_pending"}}" data-kept="{{call .T "upload_kept"}}"></p>
   </header>
 {{end}}
 
