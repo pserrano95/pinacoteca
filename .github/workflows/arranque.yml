@@ -4,10 +4,17 @@ name: arranque
 # Installs the Go version declared in go.mod and runs the check the
 # repository already has (make verify). A fresh runner plus empty
 # module and build directories: nothing is restored or saved between runs.
+# Arranque en frío solo en `main`, cada lunes y a mano; nunca en los PR
+# (Pablo, 11-11-2026): en cada PR repetía entero el CI de siempre, y en
+# noviembre los arranques de 12 repos se llevaron una quinta parte del
+# presupuesto de Actions. Que el repo se monte de cero no cambia de un commit a
+# otro de un PR. Para comprobarlo en una rama: «Run workflow» en Actions.
 on:
   push:
     branches: [main]
-  pull_request:
+  schedule:
+    - cron: "27 4 * * 1"
+  workflow_dispatch:
 
 jobs:
   arranque:
