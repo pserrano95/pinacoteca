@@ -62,10 +62,12 @@ type Artist struct {
 }
 
 // Artwork is persisted as artwork.json beside original.* and derived/.
+// UploadID is optional. schema_version stays 1 so an older file still loads.
 type Artwork struct {
 	Crop          *imageutil.Crop `json:"crop,omitempty"`
 	Hidden        bool            `json:"hidden,omitempty"`
 	SchemaVersion int             `json:"schema_version"`
+	UploadID      string          `json:"upload_id,omitempty"`
 	Title         string          `json:"title"`
 	Date          Date            `json:"date"`
 	Description   string          `json:"description,omitempty"`
@@ -85,6 +87,9 @@ type ArtworkRecord struct {
 	ThumbPath    string
 	Meta         Artwork
 	AgeYears     int
+	// Duplicate is true when CreateArtwork returned an existing upload_id
+	// and wrote nothing. It is not part of the archive.
+	Duplicate bool `json:"-"`
 }
 
 const (
