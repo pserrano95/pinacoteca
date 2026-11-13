@@ -50,6 +50,11 @@
     {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
     {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
     <h1>{{call .T "gallery_title"}}</h1>
+    {{if .MemberGalleries}}
+    <nav class="room-links" aria-label="{{call .T "room_links"}}">
+      {{range .MemberGalleries}}<a href="/galleries/{{.Slug}}/room?lang={{$.Lang}}">{{.Name}}</a>{{end}}
+    </nav>
+    {{end}}
     {{if .OwnedGalleries}}
     <p class="muted">{{call .T "nav_your_galleries"}}
       {{range .OwnedGalleries}}<a href="/galleries/{{.Slug}}?lang={{$.Lang}}">{{.Name}}</a> {{end}}
@@ -365,6 +370,30 @@
  </form>
  {{else}}<p>{{call .T "guardian_no_artworks"}}</p>{{end}}
 </main>
+</body>
+</html>
+{{end}}
+
+{{define "gallery_room"}}
+{{template "head" .}}
+{{template "header" .}}
+  <main class="gallery-room" data-wall="{{.WallColour}}">
+    <h1>{{.GalleryName}}</h1>
+    {{if not .Artworks}}<p class="empty">{{call .T "room_empty"}}</p>{{else}}
+    <div class="salon">
+      {{range .Artworks}}
+      <a class="exhibit" href="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}?lang={{$.Lang}}">
+        <div class="mat"><img src="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}/original" alt=""></div>
+        <div class="exhibit-label">
+          <strong>{{.Title}}</strong>
+          <span>{{.ArtistName}} · {{call $.AgeLabel .AgeYears}}</span>
+          {{if .GiftedTo}}<span>{{call $.T "artwork_gifted_to"}}: {{.GiftedTo}}</span>{{end}}
+        </div>
+      </a>
+      {{end}}
+    </div>
+    {{end}}
+  </main>
 </body>
 </html>
 {{end}}

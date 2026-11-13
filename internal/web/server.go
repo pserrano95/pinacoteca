@@ -93,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 		"GET /{$}":                                         http.HandlerFunc(s.gallery),
 		"GET /galleries/new":                               http.HandlerFunc(s.galleryNewGET),
 		"POST /galleries/new":                              http.HandlerFunc(s.galleryNewPOST),
+		"GET /galleries/{gallery}/room":                    http.HandlerFunc(s.galleryRoom),
 		"GET /galleries/{gallery}":                         http.HandlerFunc(s.galleryManageGET),
 		"POST /galleries/{gallery}/artists":                http.HandlerFunc(s.galleryArtistPOST),
 		"POST /galleries/{gallery}/invite":                 http.HandlerFunc(s.galleryInvitePOST),
@@ -144,6 +145,8 @@ type pageData struct {
 	CSRF              string
 	LoggedIn          bool
 	IsOwner           bool
+	MemberGalleries   []galleryLink
+	WallColour        string
 	OwnedGalleries    []galleryLink
 	GalleryName       string
 	GallerySlug       string
@@ -281,6 +284,19 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 			HasThumb:    fileExists(thumb),
 		})
 	}
+	galleries, err := s.Index.ListGalleries()
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	for _, g := range galleries {
+		for _, member := range g.Members {
+			if member.MemberID == m.ID {
+				data.MemberGalleries = append(data.MemberGalleries, galleryLink{Slug: g.Slug, Name: g.Name})
+				break
+			}
+		}
+	}
 	if data.IsOwner {
 		owned, err := s.ownedGalleryLinks(m.ID)
 		if err != nil {
@@ -290,6 +306,65 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.render(w, "gallery", data)
+}
+
+// galleryRoom is a read-only exhibition with approval scoped to this gallery.
+func (s *Server) galleryRoom(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.sessionMember(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	galleries, err := s.Index.ListGalleries()
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	var room index.GalleryRow
+	member := false
+	for _, g := range galleries {
+		if g.Slug != r.PathValue("gallery") {
+			continue
+		}
+		room = g
+		for _, gm := range g.Members {
+			if gm.MemberID == m.ID {
+				member = true
+				break
+			}
+		}
+		break
+	}
+	if !member {
+		http.NotFound(w, r)
+		return
+	}
+	visible, err := s.Index.GalleryArtistSlugs(room.Slug)
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	rows, err := s.Index.ListArtworks()
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	data := s.page(w, r)
+	data.Title, data.GalleryName = room.Name, room.Name
+	data.WallColour = room.WallColour
+	if !store.ValidWallColour(data.WallColour) {
+		data.WallColour = "off-white"
+	}
+	for _, row := range rows {
+		if _, show := visible[row.ArtistSlug]; !show || !s.canSeeHidden(r, row.ArtistSlug, row.Hidden) {
+			continue
+		}
+		data.Artworks = append(data.Artworks, artworkView{
+			ArtistSlug: row.ArtistSlug, ArtistName: row.ArtistName, Folder: row.Folder,
+			Title: displayTitle(row.Title), AgeYears: row.AgeYears, GiftedTo: row.GiftedTo,
+		})
+	}
+	s.render(w, "gallery_room", data)
 }
 
 func (s *Server) galleryNewGET(w http.ResponseWriter, r *http.Request) {
