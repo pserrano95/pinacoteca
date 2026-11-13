@@ -383,7 +383,7 @@
     <div class="salon">
       {{range .Artworks}}
       <a class="exhibit" href="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}?lang={{$.Lang}}">
-        <div class="mat"><img src="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}/original" alt=""></div>
+        <div class="mat"><img src="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}/{{if .HasDisplay}}display{{else}}original{{end}}" alt=""></div>
         <div class="exhibit-label">
           <strong>{{.Title}}</strong>
           <span>{{.ArtistName}} · {{call $.AgeLabel .AgeYears}}</span>

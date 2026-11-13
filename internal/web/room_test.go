@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pserrano95/pinacoteca/internal/imageutil"
 	"github.com/pserrano95/pinacoteca/internal/store"
 )
 
@@ -54,6 +55,31 @@ func TestRoomMemberRoles(t *testing.T) {
 		c    *http.Client
 	}{{"owner", w.owner}, {"contributor", w.contributor}, {"viewer", w.other}} {
 		t.Run(tc.name, func(t *testing.T) { assertRoomArt(t, tc.c, w.room(w.home), "LegacyLandscape", true) })
+	}
+}
+func TestRoomUsesCroppedDisplayAndFallsBackToOriginal(t *testing.T) {
+	w := newRoomWorld(t)
+	rec, err := w.st.CreateArtwork(store.CreateArtworkInput{
+		ArtistSlug: w.legacy, Title: "CroppedLandscape",
+		Date: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), ImageBytes: tinyPNG(t),
+		Crop: &imageutil.Crop{QuarterTurns: 1, Rect: imageutil.Rect{W: .5, H: .5}},
+	})
+	mustGuardian(t, err)
+	mustGuardian(t, w.srv.Index.RebuildKeepingSessions(w.st))
+	path := "/artists/" + rec.ArtistSlug + "/artworks/" + rec.Folder + "/"
+	for _, want := range []string{"display", "original"} {
+		t.Run(want, func(t *testing.T) {
+			status, body := getStatus(t, w.owner, w.room(w.home))
+			if status != http.StatusOK || !strings.Contains(body, `src="`+path+want+`"`) {
+				t.Fatalf("room: status=%d, missing %s image", status, want)
+			}
+			if want == "display" && strings.Contains(body, `src="`+path+`original"`) {
+				t.Fatal("room uses original instead of cropped display")
+			}
+		})
+		if want == "display" {
+			mustGuardian(t, os.Remove(rec.DisplayPath))
+		}
 	}
 }
 func TestRoomMembershipBoundary(t *testing.T) {

@@ -362,6 +362,7 @@ func (s *Server) galleryRoom(w http.ResponseWriter, r *http.Request) {
 		data.Artworks = append(data.Artworks, artworkView{
 			ArtistSlug: row.ArtistSlug, ArtistName: row.ArtistName, Folder: row.Folder,
 			Title: displayTitle(row.Title), AgeYears: row.AgeYears, GiftedTo: row.GiftedTo,
+			HasDisplay: fileExists(filepath.Join(s.Store.ArtistsRoot(), row.ArtistSlug, row.Folder, store.DerivedDir, "display.jpg")),
 		})
 	}
 	s.render(w, "gallery_room", data)
