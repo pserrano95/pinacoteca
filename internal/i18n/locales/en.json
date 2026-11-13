@@ -108,5 +108,7 @@
   "crop_rotate": "Rotate 90°",
   "crop_straighten": "Straighten",
   "crop_reset": "Reset crop",
-  "crop_load_error": "Preview unavailable. You can still upload the original image."
+  "crop_load_error": "Preview unavailable. You can still upload the original image.",
+  "room_links": "Gallery rooms",
+  "room_empty": "No artworks are on display in this room yet."
 }

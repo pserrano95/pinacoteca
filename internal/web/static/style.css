@@ -129,3 +129,41 @@ button:hover { filter: brightness(1.05); }
 }
 .langs a { margin-left: 0.5rem; }
 .empty { color: var(--muted); padding: 2rem 0; }
+
+/* Room walls and salon hang are deliberately scoped to the exhibition. */
+.gallery-room {
+  --wall-off-white: #f5f3ee;
+  --wall-warm-stone: #e4dfd7;
+  --wall-pale-sage: #e1e7dd;
+  --wall-dusty-blue: #dfe6eb;
+  --wall-soft-sand: #eee3cf;
+  --wall: var(--wall-off-white);
+  max-width: none;
+  min-height: 100vh;
+  padding: clamp(1.5rem, 4vw, 4rem);
+  background: var(--wall);
+}
+.gallery-room[data-wall="warm-stone"] { --wall: var(--wall-warm-stone); }
+.gallery-room[data-wall="pale-sage"] { --wall: var(--wall-pale-sage); }
+.gallery-room[data-wall="dusty-blue"] { --wall: var(--wall-dusty-blue); }
+.gallery-room[data-wall="soft-sand"] { --wall: var(--wall-soft-sand); }
+.room-links { margin-bottom: 1.5rem; }
+.salon { columns: 18rem; column-gap: 3rem; }
+.exhibit {
+  display: inline-block;
+  width: 100%;
+  margin: 1rem 0 3rem;
+  break-inside: avoid;
+  color: var(--ink);
+}
+.mat {
+  padding: clamp(1rem, 2vw, 2rem);
+  background: #fff;
+  border: 1px solid #d5d2cb;
+  box-shadow: 0 4px 12px #00000012;
+}
+.mat img { display: block; width: 100%; height: auto; }
+.exhibit-label { padding-top: 1rem; overflow-wrap: anywhere; }
+.exhibit-label strong { display: block; font-family: var(--font); font-style: italic; font-weight: 400; font-size: 1.25rem; }
+.exhibit-label span { display: block; margin-top: 0.3rem; font-size: 0.9rem; }
+.gallery-room h1 { overflow-wrap: anywhere; }

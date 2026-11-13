@@ -914,6 +914,26 @@ func (ix *Index) MemberCanUpload(memberID string) (bool, error) {
 	return n > 0, nil
 }
 
+// GalleryArtistSlugs includes only artists attached to and approved for this room.
+// Membership is checked separately so an empty room is distinct from a missing one.
+func (ix *Index) GalleryArtistSlugs(gallerySlug string) (map[string]struct{}, error) {
+	rows, err := ix.db.Query(`SELECT ga.artist_slug FROM gallery_artists ga
+ WHERE ga.gallery_slug = ?`+galleryApprovalSQL, gallerySlug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]struct{}{}
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		out[slug] = struct{}{}
+	}
+	return out, rows.Err()
+}
+
 // VisibleArtistSlugs is the set of artists the member can see.
 func (ix *Index) VisibleArtistSlugs(memberID string) (map[string]struct{}, error) {
 	return ix.artistSlugsForMember(memberID, false)

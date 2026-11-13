@@ -178,9 +178,8 @@ func (s *Store) LoadGallery(gallerySlug string) (*Gallery, error) {
 	if g.Slug != gallerySlug {
 		return nil, fmt.Errorf("gallery slug %q does not match directory %q", g.Slug, gallerySlug)
 	}
-	if !ValidWallColour(g.WallColour) {
-		return nil, fmt.Errorf("unknown wall colour %q", g.WallColour)
-	}
+	// Preserve unknown wall colours when reading the archive. Rendering falls
+	// back to off-white; creating a gallery still validates the palette.
 	if g.Artists == nil {
 		g.Artists = []string{}
 	}

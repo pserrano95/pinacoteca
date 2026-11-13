@@ -108,5 +108,7 @@
   "crop_rotate": "Girar 90°",
   "crop_straighten": "Enderezar",
   "crop_reset": "Restablecer recorte",
-  "crop_load_error": "Vista previa no disponible. Puedes subir la imagen original."
+  "crop_load_error": "Vista previa no disponible. Puedes subir la imagen original.",
+  "room_links": "Salas de las galerías",
+  "room_empty": "Todavía no hay obras expuestas en esta sala."
 }
