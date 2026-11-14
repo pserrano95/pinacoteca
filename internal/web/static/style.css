@@ -131,7 +131,8 @@ button:hover { filter: brightness(1.05); }
 .empty { color: var(--muted); padding: 2rem 0; }
 
 /* Room walls and salon hang are deliberately scoped to the exhibition. */
-.gallery-room {
+.gallery-room,
+.room-viewer {
   --wall-off-white: #f5f3ee;
   --wall-warm-stone: #e4dfd7;
   --wall-pale-sage: #e1e7dd;
@@ -139,14 +140,20 @@ button:hover { filter: brightness(1.05); }
   --wall-soft-sand: #eee3cf;
   --wall: var(--wall-off-white);
   max-width: none;
-  min-height: 100vh;
-  padding: clamp(1.5rem, 4vw, 4rem);
   background: var(--wall);
 }
-.gallery-room[data-wall="warm-stone"] { --wall: var(--wall-warm-stone); }
-.gallery-room[data-wall="pale-sage"] { --wall: var(--wall-pale-sage); }
-.gallery-room[data-wall="dusty-blue"] { --wall: var(--wall-dusty-blue); }
-.gallery-room[data-wall="soft-sand"] { --wall: var(--wall-soft-sand); }
+.gallery-room {
+  min-height: 100vh;
+  padding: clamp(1.5rem, 4vw, 4rem);
+}
+.gallery-room[data-wall="warm-stone"],
+.room-viewer[data-wall="warm-stone"] { --wall: var(--wall-warm-stone); }
+.gallery-room[data-wall="pale-sage"],
+.room-viewer[data-wall="pale-sage"] { --wall: var(--wall-pale-sage); }
+.gallery-room[data-wall="dusty-blue"],
+.room-viewer[data-wall="dusty-blue"] { --wall: var(--wall-dusty-blue); }
+.gallery-room[data-wall="soft-sand"],
+.room-viewer[data-wall="soft-sand"] { --wall: var(--wall-soft-sand); }
 .room-links { margin-bottom: 1.5rem; }
 .salon { columns: 18rem; column-gap: 3rem; }
 .exhibit {
@@ -167,3 +174,59 @@ button:hover { filter: brightness(1.05); }
 .exhibit-label strong { display: block; font-family: var(--font); font-style: italic; font-weight: 400; font-size: 1.25rem; }
 .exhibit-label span { display: block; margin-top: 0.3rem; font-size: 0.9rem; }
 .gallery-room h1 { overflow-wrap: anywhere; }
+
+/* The viewer fits one drawing on the same wall. The page itself does not scroll or zoom. */
+html:has(.room-viewer) body {
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+html:has(.room-viewer) * { touch-action: none; }
+html:has(.room-viewer) header { flex: none; }
+.room-viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem 1rem;
+  overflow: hidden;
+}
+.viewer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  flex: none;
+  font-size: 0.95rem;
+}
+.viewer-nav a { color: var(--ink); }
+.viewer-back { margin-inline: auto; }
+.viewer-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.viewer-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  transform-origin: center center;
+}
+.room-viewer .exhibit-label { flex: none; padding-top: 0; }
+.room-viewer .exhibit-label h1 {
+  margin: 0;
+  font-family: var(--font);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}

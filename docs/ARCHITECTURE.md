@@ -9,9 +9,9 @@ Pinacoteca is built around several core architectural principles established in 
 - **Filesystem Archive as Source of Truth (D-004):** Originals are immutable. Each artwork is stored in its own folder with an `artwork.json` metadata file and a `derived/` directory for generated artifacts (`thumb`, `display`, exports).
 - **Rebuildable Index (D-004):** A SQLite database acts purely as a fast query index that can be rebuilt from scratch from the filesystem archive at any time (`reindex`).
 - **Single Binary & Self-Contained Deployment (D-005):** Written in pure Go with modernc SQLite (no cgo) and packaged into a minimal Alpine container (`Dockerfile`).
-- **Server-Rendered HTML with JavaScript Islands (D-006):** Go templates with htmx for dynamic interactions; vanilla JavaScript islands for authentication, crop/straighten capture (`capture.js`), IndexedDB offline upload queueing (`upload-queue.js`), and offline service workers. No front-end build step.
+- **Server-Rendered HTML with JavaScript Islands (D-006):** Go templates with htmx for dynamic interactions; vanilla JavaScript islands for authentication, crop/straighten capture (`capture.js`), the room viewer (`viewer.js`: swipe, pinch-zoom), IndexedDB offline upload queueing (`upload-queue.js`), and offline service workers. No front-end build step.
 - **Passkeys & Invite-Only Membership (D-009):** Authentication uses WebAuthn passkeys (fingerprint/face recognition) stored on disk as JSON (`members/`). New members join via cryptographic single-use invite tokens.
-- **Museum Room Visual Theme (D-011):** Quiet museum wall exhibition with dedicated per-gallery rooms (`/galleries/{gallery}/room`), custom per-gallery wall colors, white mats, thin frame lines, and soft shadows.
+- **Museum Room Visual Theme (D-011):** Quiet museum wall exhibition with dedicated per-gallery rooms (`/galleries/{gallery}/room`) and a viewer for one drawing of that room (`/galleries/{gallery}/room/{artist}/{folder}`), custom per-gallery wall colors, white mats, thin frame lines, and soft shadows.
 - **Artist Guardians (D-008):** Parents retain full control over artists, approving gallery inclusions, controlling artwork visibility (`hidden` persisted in `artwork.json`), and downloading artist archives as ZIPs (`/artists/{artist}/export`).
 - **Progressive Web App (PWA):** Standalone web app manifest, offline service worker, and verified icons for mobile and desktop installation.
 
@@ -100,12 +100,14 @@ Pinacoteca is built around several core architectural principles established in 
 - [`internal/web/htmx_static_test.go`](../internal/web/htmx_static_test.go): Validates embedded htmx script behavior.
 - [`internal/web/pwa_test.go`](../internal/web/pwa_test.go): Tests PWA manifest, service worker registration, and icon serving.
 - [`internal/web/room_test.go`](../internal/web/room_test.go): Regression tests for gallery room views (`/galleries/{gallery}/room`), member roles, guardian approvals, hidden artworks, wall colours, cropped display images, and CLI reindex consistency.
+- [`internal/web/viewer_test.go`](../internal/web/viewer_test.go): Regression tests for the room viewer (`/galleries/{gallery}/room/{artist}/{folder}`): membership, per-gallery approval, hidden works kept out of the walk, neighbor order matching the room, both languages, and the same neighbors after reindex.
 - [`internal/web/upload_queue_test.go`](../internal/web/upload_queue_test.go): Tests for idempotent JSON upload responses (`upload_id`), validation, authentication, and `upload-queue.js` script inclusion.
 - [`internal/web/visibility_test.go`](../internal/web/visibility_test.go): Web tests for hiding/showing artworks via `POST /artists/{artist}/artworks/{folder}/visibility`, CSRF/guardian checks, reindex persistence, and export inclusion.
 - [`internal/web/templates/pages.html`](../internal/web/templates/pages.html): Go HTML templates for gallery pages, gallery rooms, artwork views, upload forms, and invites.
 - [`internal/web/testdata/capture.test.js`](../internal/web/testdata/capture.test.js): Node test suite for `capture.js` geometry, rotation, and corner resize helpers.
 - [`internal/web/testdata/htmx.min.test.js`](../internal/web/testdata/htmx.min.test.js): Vendored test fixture for htmx behavior suite.
 - [`internal/web/testdata/upload-queue.test.js`](../internal/web/testdata/upload-queue.test.js): Node test suite for `upload-queue.js` queue ordering, status disposition, and retry logic.
+- [`internal/web/testdata/viewer.test.js`](../internal/web/testdata/viewer.test.js): Node test suite for `viewer.js` scale limits, pinch ratio, pan clamp, swipe direction, and double tap.
 - [`internal/web/static/auth.js`](../internal/web/static/auth.js): Client-side WebAuthn ceremony script.
 - [`internal/web/static/capture.js`](../internal/web/static/capture.js): Progressive-enhancement client island for the interactive crop, rotation, and straighten editor on upload.
 - [`internal/web/static/htmx.min.js`](../internal/web/static/htmx.min.js): Embedded htmx library (v2.0.4) for dynamic HTML islands.
@@ -113,6 +115,7 @@ Pinacoteca is built around several core architectural principles established in 
 - [`internal/web/static/style.css`](../internal/web/static/style.css): Stylesheet implementing the quiet museum room exhibition theme (D-011).
 - [`internal/web/static/sw.js`](../internal/web/static/sw.js): PWA service worker with offline caching.
 - [`internal/web/static/upload-queue.js`](../internal/web/static/upload-queue.js): Client island queuing offline uploads in IndexedDB and retrying them idempotently with `upload_id`.
+- [`internal/web/static/viewer.js`](../internal/web/static/viewer.js): Client island for the room viewer. Swipe and arrow keys follow the previous and next links; pinch zooms the drawing from 1× to 4×, drag pans it, and a double tap returns to 1×. The links work if the script does not load.
 - [`internal/web/static/manifest.webmanifest`](../internal/web/static/manifest.webmanifest): Web application manifest for PWA installation.
 - [`internal/web/static/icons/apple-touch-icon.png`](../internal/web/static/icons/apple-touch-icon.png): Apple touch icon.
 - [`internal/web/static/icons/icon-180.png`](../internal/web/static/icons/icon-180.png): 180x180 app icon.

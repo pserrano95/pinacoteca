@@ -3,7 +3,7 @@
 <html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1{{if .RoomViewer}}, maximum-scale=1{{end}}">
   <meta name="csrf-token" content="{{.CSRF}}">
   <meta name="theme-color" content="#f7f3ec">
   <title>{{.Title}} · {{call .T "app_name"}}</title>
@@ -382,7 +382,7 @@
     {{if not .Artworks}}<p class="empty">{{call .T "room_empty"}}</p>{{else}}
     <div class="salon">
       {{range .Artworks}}
-      <a class="exhibit" href="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}?lang={{$.Lang}}">
+      <a class="exhibit" href="/galleries/{{$.GallerySlug}}/room/{{.ArtistSlug}}/{{.Folder}}?lang={{$.Lang}}">
         <div class="mat"><img src="/artists/{{.ArtistSlug}}/artworks/{{.Folder}}/{{if .HasDisplay}}display{{else}}original{{end}}" alt=""></div>
         <div class="exhibit-label">
           <strong>{{.Title}}</strong>
@@ -394,6 +394,29 @@
     </div>
     {{end}}
   </main>
+</body>
+</html>
+{{end}}
+
+{{define "gallery_viewer"}}
+{{template "head" .}}
+{{template "header" .}}
+  <main class="room-viewer" data-wall="{{.WallColour}}">
+    <nav class="viewer-nav">
+      {{if .ViewerPrev}}<a class="viewer-prev" rel="prev" href="/galleries/{{.GallerySlug}}/room/{{.ViewerPrev.ArtistSlug}}/{{.ViewerPrev.Folder}}?lang={{.Lang}}">{{call .T "viewer_previous"}}</a>{{end}}
+      <a class="viewer-back" href="/galleries/{{.GallerySlug}}/room?lang={{.Lang}}">{{call .T "viewer_back"}}</a>
+      {{if .ViewerNext}}<a class="viewer-next" rel="next" href="/galleries/{{.GallerySlug}}/room/{{.ViewerNext.ArtistSlug}}/{{.ViewerNext.Folder}}?lang={{.Lang}}">{{call .T "viewer_next"}}</a>{{end}}
+    </nav>
+    <div class="viewer-stage">
+      <img draggable="false" src="/artists/{{.Artwork.ArtistSlug}}/artworks/{{.Artwork.Folder}}/{{if .Artwork.HasDisplay}}display{{else}}original{{end}}" alt="">
+    </div>
+    <div class="exhibit-label">
+      <h1>{{.Artwork.Title}}</h1>
+      <span>{{.Artwork.ArtistName}} · {{call .AgeLabel .Artwork.AgeYears}}</span>
+      {{if .Artwork.GiftedTo}}<span>{{call .T "artwork_gifted_to"}}: {{.Artwork.GiftedTo}}</span>{{end}}
+    </div>
+  </main>
+  <script src="/static/viewer.js" defer></script>
 </body>
 </html>
 {{end}}
