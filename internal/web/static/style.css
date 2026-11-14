@@ -175,7 +175,7 @@ button:hover { filter: brightness(1.05); }
 .exhibit-label span { display: block; margin-top: 0.3rem; font-size: 0.9rem; }
 .gallery-room h1 { overflow-wrap: anywhere; }
 
-/* The viewer fits one drawing on the same wall. The page itself does not scroll or zoom. */
+/* The viewer fits one drawing on the same wall. The page itself does not scroll. */
 html:has(.room-viewer) body {
   height: 100dvh;
   min-height: 100dvh;
@@ -183,7 +183,7 @@ html:has(.room-viewer) body {
   display: flex;
   flex-direction: column;
 }
-html:has(.room-viewer) * { touch-action: none; }
+html.viewer-ready .viewer-stage { touch-action: none; }
 html:has(.room-viewer) header { flex: none; }
 .room-viewer {
   flex: 1 1 auto;

@@ -143,7 +143,6 @@ type pageData struct {
 	Artwork           *artworkView
 	ViewerPrev        *artworkView
 	ViewerNext        *artworkView
-	RoomViewer        bool
 	ByLine            string
 	AgeLine           string
 	CSRF              string
@@ -426,7 +425,6 @@ func (s *Server) galleryViewer(w http.ResponseWriter, r *http.Request) {
 	current := works[idx]
 	data.Artwork = &current
 	data.Title = current.Title
-	data.RoomViewer = true
 	if idx > 0 {
 		prev := works[idx-1]
 		data.ViewerPrev = &prev

@@ -432,6 +432,34 @@ func TestViewerScriptIsOnlyOnTheViewer(t *testing.T) {
 	}
 }
 
+func TestViewerLeavesBrowserZoomWithoutScript(t *testing.T) {
+	w := newRoomWorld(t)
+	hangExtra(t, w)
+	exhibits := roomHangs(t, w.owner, w.room(w.home)+"?lang=en")
+	status, body := getStatus(t, w.owner, w.base+exhibits[1].href)
+	if status != http.StatusOK {
+		t.Fatalf("viewer: %d", status)
+	}
+	if strings.Contains(body, "maximum-scale") || strings.Contains(body, "touch-action") || strings.Contains(body, "viewer-ready") {
+		t.Fatal("the viewer page blocks zoom before viewer.js runs")
+	}
+	status, css := getStatus(t, testClient(t), w.base+"/static/style.css")
+	if status != http.StatusOK {
+		t.Fatalf("style.css: %d", status)
+	}
+	var selectors []string
+	for _, block := range strings.Split(css, "}") {
+		if !strings.Contains(block, "touch-action") {
+			continue
+		}
+		selector, _, _ := strings.Cut(block, "{")
+		selectors = append(selectors, strings.TrimSpace(selector))
+	}
+	if len(selectors) != 1 || selectors[0] != "html.viewer-ready .viewer-stage" {
+		t.Fatalf("touch-action without the script mark: %q", selectors)
+	}
+}
+
 func TestViewerNeighborsAfterReindex(t *testing.T) {
 	w := newRoomWorld(t)
 	hangExtra(t, w)

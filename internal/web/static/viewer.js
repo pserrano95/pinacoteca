@@ -58,6 +58,9 @@
   var img = stage && stage.querySelector("img");
   if (!root || !stage || !img) return;
 
+  // Browser zoom stays available until the script is running.
+  document.documentElement.classList.add("viewer-ready");
+
   var scale = 1;
   var tx = 0;
   var ty = 0;
