@@ -8,7 +8,7 @@ age, what it shows, who received it — and exhibited only to the relatives the
 child's family chooses. The archive is stored as plain files that stay
 readable without Pinacoteca.
 
-**Status:** Passkey accounts, galleries with roles, artist guardians, JPEG EXIF orientation, PWA offline support, and standalone HTML export. The gallery is closed until someone is invited. Works are shown only to members of a gallery that includes the artist.
+**Status:** Passkey accounts, galleries with roles and dedicated museum rooms, artist guardians (with persistent artwork visibility and ZIP export), JPEG EXIF orientation, crop and straighten upload editor, PWA offline support with queued uploads, and standalone HTML export. The gallery is closed until someone is invited. Works are shown only to members of a gallery that includes the artist.
 
 ## Run locally
 
@@ -92,3 +92,6 @@ pinacoteca artist add-guardian --data ./data ARTIST_SLUG MEMBER_ID
 Assignment does not approve existing galleries: the guardian must approve them.
 Guardian IDs and approved gallery slugs live in `artist.json`; reindexing
 preserves these permissions. CLI-created artists have no provisional guardian.
+Guardians can also hide or show individual artworks (persisted in `artwork.json`)
+and download an artist's archive as a ZIP from the web UI (`/artists/{artist}/export`).
+Each gallery has a dedicated museum room view (`/galleries/{gallery}/room`).
