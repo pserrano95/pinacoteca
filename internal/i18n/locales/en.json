@@ -110,5 +110,8 @@
   "crop_reset": "Reset crop",
   "crop_load_error": "Preview unavailable. You can still upload the original image.",
   "room_links": "Gallery rooms",
-  "room_empty": "No artworks are on display in this room yet."
+  "room_empty": "No artworks are on display in this room yet.",
+  "viewer_previous": "Previous",
+  "viewer_next": "Next",
+  "viewer_back": "Back to the room"
 }
