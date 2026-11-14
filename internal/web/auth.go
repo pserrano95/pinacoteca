@@ -100,6 +100,7 @@ func (s *Server) routeSpecs() []routeSpec {
 		{http.MethodGet, "/galleries/new", false, "redirect"},
 		{http.MethodPost, "/galleries/new", false, "unauthorized"},
 		{http.MethodGet, "/galleries/{gallery}/room", false, "redirect"},
+		{http.MethodGet, "/galleries/{gallery}/room/{artist}/{folder}", false, "redirect"},
 		{http.MethodGet, "/galleries/{gallery}", false, "redirect"},
 		{http.MethodPost, "/galleries/{gallery}/artists", false, "unauthorized"},
 		{http.MethodPost, "/galleries/{gallery}/invite", false, "unauthorized"},

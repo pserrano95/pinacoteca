@@ -81,19 +81,20 @@ func (s *Server) Handler() http.Handler {
 		"POST /artists/{artist}/artworks/{folder}/visibility": http.HandlerFunc(s.artworkVisibilityPOST),
 		"GET /artists/{artist}/galleries":                     http.HandlerFunc(s.artistGalleriesGET),
 		"POST /artists/{artist}/galleries/{gallery}/approve":  http.HandlerFunc(s.artistGalleryApprovePOST),
-		"GET /static/":                                     http.StripPrefix("/static/", http.FileServer(http.FS(static))),
-		"GET /manifest.webmanifest":                        http.HandlerFunc(s.manifestGET),
-		"GET /sw.js":                                       http.HandlerFunc(s.swGET),
-		"GET /login":                                       http.HandlerFunc(s.loginGET),
-		"GET /invite/{token}":                              http.HandlerFunc(s.inviteGET),
-		"POST /login/begin":                                http.HandlerFunc(s.loginBegin),
-		"POST /login/finish":                               http.HandlerFunc(s.loginFinish),
-		"POST /invite/{token}/begin":                       http.HandlerFunc(s.inviteBegin),
-		"POST /invite/{token}/finish":                      http.HandlerFunc(s.inviteFinish),
-		"GET /{$}":                                         http.HandlerFunc(s.gallery),
-		"GET /galleries/new":                               http.HandlerFunc(s.galleryNewGET),
-		"POST /galleries/new":                              http.HandlerFunc(s.galleryNewPOST),
-		"GET /galleries/{gallery}/room":                    http.HandlerFunc(s.galleryRoom),
+		"GET /static/":                  http.StripPrefix("/static/", http.FileServer(http.FS(static))),
+		"GET /manifest.webmanifest":     http.HandlerFunc(s.manifestGET),
+		"GET /sw.js":                    http.HandlerFunc(s.swGET),
+		"GET /login":                    http.HandlerFunc(s.loginGET),
+		"GET /invite/{token}":           http.HandlerFunc(s.inviteGET),
+		"POST /login/begin":             http.HandlerFunc(s.loginBegin),
+		"POST /login/finish":            http.HandlerFunc(s.loginFinish),
+		"POST /invite/{token}/begin":    http.HandlerFunc(s.inviteBegin),
+		"POST /invite/{token}/finish":   http.HandlerFunc(s.inviteFinish),
+		"GET /{$}":                      http.HandlerFunc(s.gallery),
+		"GET /galleries/new":            http.HandlerFunc(s.galleryNewGET),
+		"POST /galleries/new":           http.HandlerFunc(s.galleryNewPOST),
+		"GET /galleries/{gallery}/room": http.HandlerFunc(s.galleryRoom),
+		"GET /galleries/{gallery}/room/{artist}/{folder}":  http.HandlerFunc(s.galleryViewer),
 		"GET /galleries/{gallery}":                         http.HandlerFunc(s.galleryManageGET),
 		"POST /galleries/{gallery}/artists":                http.HandlerFunc(s.galleryArtistPOST),
 		"POST /galleries/{gallery}/invite":                 http.HandlerFunc(s.galleryInvitePOST),
@@ -140,6 +141,9 @@ type pageData struct {
 	SelectedArtist    string
 	SelectedGallery   string
 	Artwork           *artworkView
+	ViewerPrev        *artworkView
+	ViewerNext        *artworkView
+	RoomViewer        bool
 	ByLine            string
 	AgeLine           string
 	CSRF              string
@@ -308,24 +312,30 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "gallery", data)
 }
 
-// galleryRoom is a read-only exhibition with approval scoped to this gallery.
-func (s *Server) galleryRoom(w http.ResponseWriter, r *http.Request) {
+// errRoomClosed is a gallery this member does not belong to, or one that
+// does not exist. Callers answer 404. An index failure is a different error.
+var errRoomClosed = errors.New("room closed")
+
+// roomWorks is the only ordered list the room and the viewer may show.
+// Membership, approval for this gallery, and hidden works are decided here
+// so the two pages cannot drift apart.
+func (s *Server) roomWorks(r *http.Request, gallerySlug string) (index.GalleryRow, []artworkView, error) {
 	m, ok := s.sessionMember(r)
 	if !ok {
-		http.NotFound(w, r)
-		return
+		return index.GalleryRow{}, nil, errRoomClosed
 	}
 	galleries, err := s.Index.ListGalleries()
 	if err != nil {
-		http.Error(w, genericError(r), http.StatusInternalServerError)
-		return
+		return index.GalleryRow{}, nil, err
 	}
 	var room index.GalleryRow
 	member := false
+	found := false
 	for _, g := range galleries {
-		if g.Slug != r.PathValue("gallery") {
+		if g.Slug != gallerySlug {
 			continue
 		}
+		found = true
 		room = g
 		for _, gm := range g.Members {
 			if gm.MemberID == m.ID {
@@ -335,37 +345,97 @@ func (s *Server) galleryRoom(w http.ResponseWriter, r *http.Request) {
 		}
 		break
 	}
-	if !member {
-		http.NotFound(w, r)
-		return
+	if !found || !member {
+		return index.GalleryRow{}, nil, errRoomClosed
 	}
 	visible, err := s.Index.GalleryArtistSlugs(room.Slug)
 	if err != nil {
-		http.Error(w, genericError(r), http.StatusInternalServerError)
-		return
+		return index.GalleryRow{}, nil, err
 	}
 	rows, err := s.Index.ListArtworks()
 	if err != nil {
-		http.Error(w, genericError(r), http.StatusInternalServerError)
-		return
+		return index.GalleryRow{}, nil, err
 	}
-	data := s.page(w, r)
-	data.Title, data.GalleryName = room.Name, room.Name
-	data.WallColour = room.WallColour
-	if !store.ValidWallColour(data.WallColour) {
-		data.WallColour = "off-white"
-	}
+	var works []artworkView
 	for _, row := range rows {
 		if _, show := visible[row.ArtistSlug]; !show || !s.canSeeHidden(r, row.ArtistSlug, row.Hidden) {
 			continue
 		}
-		data.Artworks = append(data.Artworks, artworkView{
+		works = append(works, artworkView{
 			ArtistSlug: row.ArtistSlug, ArtistName: row.ArtistName, Folder: row.Folder,
 			Title: displayTitle(row.Title), AgeYears: row.AgeYears, GiftedTo: row.GiftedTo,
 			HasDisplay: fileExists(filepath.Join(s.Store.ArtistsRoot(), row.ArtistSlug, row.Folder, store.DerivedDir, "display.jpg")),
 		})
 	}
+	return room, works, nil
+}
+
+func (s *Server) paintRoom(data pageData, room index.GalleryRow) pageData {
+	data.GalleryName = room.Name
+	data.GallerySlug = room.Slug
+	data.WallColour = room.WallColour
+	if !store.ValidWallColour(data.WallColour) {
+		data.WallColour = "off-white"
+	}
+	return data
+}
+
+// galleryRoom is a read-only exhibition with approval scoped to this gallery.
+func (s *Server) galleryRoom(w http.ResponseWriter, r *http.Request) {
+	room, works, err := s.roomWorks(r, r.PathValue("gallery"))
+	if errors.Is(err, errRoomClosed) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	data := s.paintRoom(s.page(w, r), room)
+	data.Title = room.Name
+	data.Artworks = works
 	s.render(w, "gallery_room", data)
+}
+
+// galleryViewer shows one drawing from that same list. Anything the room
+// does not hang — another gallery, not approved here, hidden, or missing —
+// is a 404, including as a previous or next step.
+func (s *Server) galleryViewer(w http.ResponseWriter, r *http.Request) {
+	room, works, err := s.roomWorks(r, r.PathValue("gallery"))
+	if errors.Is(err, errRoomClosed) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, genericError(r), http.StatusInternalServerError)
+		return
+	}
+	artist, folder := r.PathValue("artist"), r.PathValue("folder")
+	idx := -1
+	for i, work := range works {
+		if work.ArtistSlug == artist && work.Folder == folder {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		http.NotFound(w, r)
+		return
+	}
+	data := s.paintRoom(s.page(w, r), room)
+	current := works[idx]
+	data.Artwork = &current
+	data.Title = current.Title
+	data.RoomViewer = true
+	if idx > 0 {
+		prev := works[idx-1]
+		data.ViewerPrev = &prev
+	}
+	if idx+1 < len(works) {
+		next := works[idx+1]
+		data.ViewerNext = &next
+	}
+	s.render(w, "gallery_viewer", data)
 }
 
 func (s *Server) galleryNewGET(w http.ResponseWriter, r *http.Request) {

@@ -22,7 +22,7 @@ func TestHtmxMinJS(t *testing.T) {
 	}
 	dir := filepath.Dir(file)
 	suite := filepath.Join(dir, "testdata", "htmx.min.test.js")
-	cmd := exec.Command(node, "--test", "--test-concurrency=1", suite, filepath.Join(dir, "testdata", "capture.test.js"), filepath.Join(dir, "testdata", "upload-queue.test.js"))
+	cmd := exec.Command(node, "--test", "--test-concurrency=1", suite, filepath.Join(dir, "testdata", "capture.test.js"), filepath.Join(dir, "testdata", "upload-queue.test.js"), filepath.Join(dir, "testdata", "viewer.test.js"))
 	cmd.Dir = filepath.Dir(suite)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
