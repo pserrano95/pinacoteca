@@ -59,6 +59,7 @@ Targets:
 - `make test` — run unit and integration tests (`go test ./...`).
 - `make check-runtime-alpine` — verify the Alpine runtime version in Dockerfile is actively supported.
 - `make docker-build` — build local container image (`pinacoteca:local`).
+- `make e2e` — run browser end-to-end journeys against a local seeded instance (`ARGS="--list"` to list journeys, `ARGS="<id>"` to run one).
 
 ## Docker
 

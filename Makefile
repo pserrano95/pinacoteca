@@ -1,4 +1,4 @@
-.PHONY: verify fmt vet test check-runtime-alpine docker-build
+.PHONY: verify fmt vet test check-runtime-alpine docker-build e2e
 
 verify: fmt vet test check-runtime-alpine docker-build
 
@@ -18,3 +18,6 @@ check-runtime-alpine:
 
 docker-build:
 	docker build -t pinacoteca:local .
+
+e2e:
+	go run ./cmd/e2e $(ARGS)
