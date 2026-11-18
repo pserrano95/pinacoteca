@@ -12,6 +12,7 @@ import (
 
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
+	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
@@ -154,6 +155,30 @@ func runOne(allocCtx context.Context, j Journey) Result {
 					noiseMu.Unlock()
 				}
 			}
+		case *fetch.EventRequestPaused:
+			reqID := e.RequestID
+			rawURL := ""
+			if e.Request != nil {
+				rawURL = e.Request.URL
+			}
+			allowed := isAllowedOrigin(rawURL, baseParsed)
+			if !allowed {
+				noiseMu.Lock()
+				noise = append(noise, fmt.Sprintf("blocked external request: %s", rawURL))
+				noiseMu.Unlock()
+			}
+			go func() {
+				if allowed {
+					_, _ = chromedp.Call(ctx, fetch.ContinueRequest, fetch.ContinueRequestParams{
+						RequestID: reqID,
+					})
+				} else {
+					_, _ = chromedp.Call(ctx, fetch.FailRequest, fetch.FailRequestParams{
+						RequestID:   reqID,
+						ErrorReason: network.ErrorReasonBlockedByClient,
+					})
+				}
+			}()
 		}
 	}); err != nil {
 		return Result{ID: j.ID, OK: false, Lines: []string{fmt.Sprintf("  ✗ could not attach browser listener: %v", err)}}
@@ -169,6 +194,11 @@ func runOne(allocCtx context.Context, j Journey) Result {
 	}
 	if _, err := chromedp.Call(ctx, network.Enable, network.EnableParams{}); err != nil {
 		return Result{ID: j.ID, OK: false, Lines: []string{fmt.Sprintf("  ✗ could not enable network: %v", err)}}
+	}
+	if _, err := chromedp.Call(ctx, fetch.Enable, fetch.EnableParams{
+		Patterns: []*fetch.RequestPattern{{URLPattern: "*", RequestStage: fetch.RequestStageRequest}},
+	}); err != nil {
+		return Result{ID: j.ID, OK: false, Lines: []string{fmt.Sprintf("  ✗ could not enable fetch: %v", err)}}
 	}
 	if _, err := chromedp.Call(ctx, emulation.SetDeviceMetricsOverride, emulation.SetDeviceMetricsOverrideParams{
 		Width:             w,
@@ -237,6 +267,18 @@ func runOne(allocCtx context.Context, j Journey) Result {
 	}
 
 	return Result{ID: j.ID, OK: true, Lines: lines}
+}
+
+func isAllowedOrigin(rawURL string, base *url.URL) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	switch u.Scheme {
+	case "data", "blob", "about":
+		return true
+	}
+	return base != nil && u.Scheme == base.Scheme && u.Host == base.Host
 }
 
 func firstLine(s string) string {

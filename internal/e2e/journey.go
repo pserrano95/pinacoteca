@@ -137,6 +137,7 @@ func Click(ctx context.Context, selector string) error {
 	var coords clickCoords
 	err := Until(ctx, fmt.Sprintf("clickable %q", selector), func(c context.Context) (bool, error) {
 		js := fmt.Sprintf(`(() => {
+			if (document.readyState !== 'complete') return { ok: false, reason: 'document still loading' };
 			const el = document.querySelector(%s);
 			if (!el) return { ok: false, reason: 'element not found' };
 			const st = getComputedStyle(el);
@@ -209,13 +210,36 @@ func SetSession(ctx context.Context, h *Harness, token string) error {
 	return err
 }
 
-// Navigate opens path relative to the harness base URL and waits for main to be visible.
+// Navigate opens path relative to the harness base URL, checks the HTTP status, and waits for main to be visible.
 func Navigate(ctx context.Context, h *Harness, path string) error {
 	u := strings.TrimRight(h.BaseURL, "/") + path
-	if _, err := chromedp.Run(ctx, chromedp.Navigate(u)); err != nil {
+	resp, err := chromedp.Run(ctx, chromedp.NavigateResponse(u))
+	if err != nil {
 		return err
 	}
+	if resp == nil {
+		return fmt.Errorf("GET %s: no HTTP response", path)
+	}
+	if resp.Status >= 400 {
+		return fmt.Errorf("GET %s returned HTTP %d", path, resp.Status)
+	}
 	return See(ctx, "main")
+}
+
+// ExpectStatus opens path relative to the harness base URL and verifies the HTTP status code.
+func ExpectStatus(ctx context.Context, h *Harness, path string, want int) error {
+	u := strings.TrimRight(h.BaseURL, "/") + path
+	resp, err := chromedp.Run(ctx, chromedp.NavigateResponse(u))
+	if err != nil {
+		return err
+	}
+	if resp == nil {
+		return fmt.Errorf("GET %s: no HTTP response", path)
+	}
+	if resp.Status != int64(want) {
+		return fmt.Errorf("GET %s returned HTTP %d, want %d", path, resp.Status, want)
+	}
+	return nil
 }
 
 type viewportDims struct {
