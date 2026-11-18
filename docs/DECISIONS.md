@@ -269,3 +269,33 @@ feeling cold: each gallery has its own wall colour, chosen by its owner.
   age at which they were made. It is a tab on the artist, not the home page.
 - H4 is reviewed against this entry; until then new screens use the existing
   stylesheet and do not add decoration.
+
+---
+
+## D-012 — Browser end-to-end journeys with chromedp
+
+**Status:** accepted · 2026-11-18
+
+**Reason.** Unit and HTTP tests verify that handlers and storage functions
+do their job, not that a person can actually use the gallery in a browser:
+an overlapping element, a horizontal overflow on a 390 px phone screen, or a
+client-side JavaScript error passes `go test ./...`. A separate `make e2e`
+command (`cmd/e2e`, `internal/e2e`) opens the real web app in headless
+Chromium against an isolated local harness with seeded sample drawings and a
+pre-seeded session cookie, walks each user journey step by step, and checks
+the visible outcome.
+
+**Alternatives considered.**
+- *Playwright (`playwright-core` or `playwright-go`).* Discarded: requires
+  adding Node.js, `package.json`, `node_modules`, or an external driver binary
+  to a pure-Go repository.
+- *Mixing browser tests into `go test ./...`.* Discarded: slows down `make
+  verify` and couples unit tests to a browser binary.
+
+**Consequences.**
+- Browser automation uses `github.com/chromedp/chromedp` (pure Go, no Node.js
+  or npm dependencies), driving any installed Chrome/Chromium or
+  `E2E_CHROMIUM`.
+- Every journey fails on uncaught JavaScript errors, `console.error`, or
+  5xx responses, and writes a screenshot to `e2e/output/<id>.png` on failure.
+- CI runs `make e2e` in a separate job pinned to `ubuntu-24.04`.

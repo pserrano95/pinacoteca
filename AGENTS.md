@@ -29,6 +29,9 @@ service, analytics or monetisation.
 - `make verify` — gofmt (must be clean), `go vet ./...`, `go test ./...`,
   a check that the runtime Alpine is still in support, and `docker build`
   (the same steps CI runs).
+- `make e2e` — run browser end-to-end journeys (`cmd/e2e`, `internal/e2e`)
+  against a local seeded instance (`ARGS="--list"` to list journeys,
+  `ARGS="<id>"` to run one). Requires Chromium or Chrome (`E2E_CHROMIUM`).
 - `go run ./cmd/pinacoteca serve --data ./data` — HTTP gallery on `:8080`.
   `--base-url` (default `http://localhost:8080`) sets the WebAuthn origin;
   `--rp-id` and `--origin` override the relying party id and origin.
@@ -69,9 +72,10 @@ service, analytics or monetisation.
 
 ## What CI checks
 
-`.github/workflows/ci.yml` runs `make verify`: gofmt (clean tree), `go vet
-./...`, `go test ./...`, the runtime Alpine support check, and `docker build`.
-A skipped step counts as red.
+`.github/workflows/ci.yml` runs `make verify` (gofmt, `go vet ./...`,
+`go test ./...`, the runtime Alpine support check, and `docker build`) and a
+separate `e2e` job pinned to `ubuntu-24.04` that runs `make e2e`. A skipped
+step counts as red.
 
 ## Commits
 
