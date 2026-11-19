@@ -18,6 +18,12 @@ Not optional: fetch `origin/main` and merge it into your branch
 runs — `make verify` and `make e2e` (see `AGENTS.md`, «What CI checks»). A
 skipped step counts as red. Paste the output in the pull request.
 
+If a journey exposes an unrelated real failure, put the failure and its
+screenshot in **Repository surprises** (or **Sorpresas del repo** in the
+issue's closing block) with a proposed `CONOCIDOS` entry. The assignment
+leaves such failures and the list untouched. Only a session with the
+repository owner or PR review may add an entry.
+
 ## The pull request
 
 The first line of its body closes the issue:

@@ -77,6 +77,11 @@ service, analytics or monetisation.
 separate `e2e` job pinned to `ubuntu-24.04` that runs `make e2e`. A skipped
 step counts as red.
 
+When a journey exposes a real failure unrelated to the assignment, report
+it under **Repository surprises** in the PR with the screenshot and a
+proposed `CONOCIDOS` entry. Leave the application and list as they are.
+Only a session with the repository owner or PR review may add an entry.
+
 ## Commits
 
 In English, saying what changes and **why**, not only what.

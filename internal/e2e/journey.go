@@ -28,8 +28,15 @@ const (
 
 // Step is a single user action or assertion in a journey.
 type Step struct {
-	What string
-	Do   func(ctx context.Context, h *Harness) error
+	What         string
+	Do           func(ctx context.Context, h *Harness) error
+	ExpectedHTTP *HTTPFailure
+}
+
+// HTTPFailure identifies a deliberate 4xx response by path and status.
+type HTTPFailure struct {
+	Path   string
+	Status int64
 }
 
 // Journey is an end-to-end user flow in the gallery.
@@ -243,18 +250,60 @@ func ExpectStatus(ctx context.Context, h *Harness, path string, want int) error 
 }
 
 type viewportDims struct {
-	ScrollWidth int `json:"scrollWidth"`
-	InnerWidth  int `json:"innerWidth"`
+	ScrollWidth int     `json:"scrollWidth"`
+	InnerWidth  int     `json:"innerWidth"`
+	Element     string  `json:"element"`
+	Overflow    float64 `json:"overflow"`
 }
 
 // NoOverflow checks that the page is not wider than maxWidth pixels.
 func NoOverflow(ctx context.Context, screen string, maxWidth int) error {
-	dims, err := chromedp.Run(ctx, chromedp.Evaluate[viewportDims](`({
-		scrollWidth: Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0),
-		innerWidth: window.innerWidth
-	})`))
+	dims, err := chromedp.Run(ctx, chromedp.Evaluate[viewportDims](`(() => {
+		const root = document.documentElement;
+		const body = document.body;
+		const width = window.innerWidth;
+		const dimensions = {
+			scrollWidth: Math.max(root.scrollWidth, body ? body.scrollWidth : 0),
+			innerWidth: width
+		};
+
+		function clippingAncestor(el) {
+			for (let child = el; child.parentElement;) {
+				const position = getComputedStyle(child).position;
+				// Overflow between a positioned box and its containing block
+				// cannot clip that box.
+				const parent = (position === 'absolute' || position === 'fixed')
+					? child.offsetParent : child.parentElement;
+				if (!parent || parent === body || parent === root) return null;
+				const style = getComputedStyle(parent);
+				if (!['inline', 'contents'].includes(style.display) &&
+					style.overflowX !== 'visible') return parent;
+				child = parent;
+			}
+			return null;
+		}
+
+		for (const el of document.querySelectorAll('html, body, body *')) {
+			const rect = el.getBoundingClientRect();
+			const overflow = Math.max(-rect.left, rect.right - width);
+			if (overflow <= 0 || rect.width === 0 || rect.height === 0) continue;
+			if (el.closest('[aria-hidden="true"], .visually-hidden, .sr-only')) continue;
+			if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+			const clip = clippingAncestor(el);
+			if (clip) {
+				const frame = clip.getBoundingClientRect();
+				if (frame.left >= 0 && frame.right <= width) continue;
+			}
+			const classes = [...el.classList].join('.');
+			return { ...dimensions, element: el.localName + (classes ? '.' + classes : ''), overflow };
+		}
+		return dimensions;
+	})()`))
 	if err != nil {
 		return err
+	}
+	if dims.Element != "" {
+		return fmt.Errorf("%q overflows: %s extends %.2f px beyond the %d px viewport", screen, dims.Element, dims.Overflow, dims.InnerWidth)
 	}
 	if dims.ScrollWidth > maxWidth || dims.InnerWidth > maxWidth {
 		return fmt.Errorf("%q overflows: page is %d px wide (innerWidth %d) in a %d px viewport", screen, dims.ScrollWidth, dims.InnerWidth, maxWidth)
