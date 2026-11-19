@@ -3,14 +3,14 @@ module github.com/pserrano95/pinacoteca
 go 1.27.3
 
 require (
+	github.com/chromedp/cdproto v0.160.1
+	github.com/chromedp/chromedp v0.23.1
 	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/go-webauthn/webauthn v0.18.2
-	modernc.org/sqlite v1.61.1
+	modernc.org/sqlite v1.62.0
 )
 
 require (
-	github.com/chromedp/cdproto v0.160.1 // indirect
-	github.com/chromedp/chromedp v0.23.1 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
@@ -26,7 +26,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	modernc.org/libc v1.79.0 // indirect
+	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
