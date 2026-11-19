@@ -88,6 +88,7 @@ type routeSpec struct {
 func (s *Server) routeSpecs() []routeSpec {
 	return []routeSpec{
 		{http.MethodGet, "/static/", true, ""},
+		{http.MethodGet, "/favicon.ico", true, ""},
 		{http.MethodGet, "/manifest.webmanifest", true, ""},
 		{http.MethodGet, "/sw.js", true, ""},
 		{http.MethodGet, "/login", true, ""},

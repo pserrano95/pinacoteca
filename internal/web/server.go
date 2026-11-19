@@ -107,6 +107,10 @@ func (s *Server) Handler() http.Handler {
 		"GET /artists/{artist}/artworks/{folder}/display":  http.HandlerFunc(s.serveDisplay),
 		"GET /artists/{artist}/artworks/{folder}/thumb":    http.HandlerFunc(s.serveThumb),
 		"POST /logout":                                     http.HandlerFunc(s.logout),
+
+		"GET /favicon.ico": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFileFS(w, r, static, "icons/icon-192.png")
+		}),
 	}
 	for _, rt := range s.routeSpecs() {
 		key := rt.Method + " " + rt.Pattern
