@@ -299,3 +299,36 @@ the visible outcome.
 - Every journey fails on uncaught JavaScript errors, `console.error`, or
   5xx responses, and writes a screenshot to `e2e/output/<id>.png` on failure.
 - CI runs `make e2e` in a separate job pinned to `ubuntu-24.04`.
+
+---
+
+## D-013 — Browser journeys report clipped overflow and track known assertions
+
+**Status:** accepted · 2026-11-19
+
+**Reason.** D-012's checks miss overflowing boxes when the page clips them
+and miss same-origin client errors such as an image returning 404. An
+unrelated failure can also trigger automated follow-up work outside the
+assignment.
+
+**Alternatives considered.**
+- *Rely on document scroll width.* Intermediate clipping containers can
+  conceal out-of-bounds boxes from scroll measurements.
+- *Ignore all off-screen fixed and absolute elements.* Those elements can
+  cause the same visible overflow as elements in normal flow.
+- *Allow a failing journey by name.* This would also hide regressions in its
+  later actions and browser errors from the failing step.
+
+**Consequences.**
+- The width check also inspects visible element boxes on both sides of the
+  viewport. A clipping ancestor can contain its descendants within its own
+  frame when the frame fits horizontally. The document and body cannot
+  exempt an overflowing box.
+- Same-origin HTTP responses of 400 or higher fail the journey. A deliberate
+  4xx must match the path and status declared by its initiating step.
+  External requests are still blocked and reported.
+- Owner-reviewed `CONOCIDOS` entries identify one assertion by journey and
+  step and include a reason and repository issue. Execution continues after
+  a known failure. A passing known assertion, a later unexpected failure,
+  or browser noise still fails the run. The summary counts green and known
+  journeys separately.

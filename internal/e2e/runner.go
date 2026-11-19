@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -24,7 +25,40 @@ const outputDir = "e2e/output"
 type Result struct {
 	ID    string
 	OK    bool
+	Known bool
 	Lines []string
+}
+
+type stepKey struct {
+	journey string
+	step    string
+}
+
+var issueURL = regexp.MustCompile(`^https://github\.com/pserrano95/pinacoteca/issues/[1-9][0-9]*$`)
+
+func knownFailures() (map[stepKey]knownFailure, error) {
+	steps := make(map[stepKey]int)
+	for _, j := range Journeys {
+		for _, step := range j.Steps {
+			steps[stepKey{j.ID, step.What}]++
+		}
+	}
+	known := make(map[stepKey]knownFailure)
+	for _, entry := range CONOCIDOS {
+		key := stepKey{entry.Journey, entry.Step}
+		switch {
+		case !issueURL.MatchString(entry.Issue):
+			return nil, fmt.Errorf("%q / %q needs an issue URL from this repository", entry.Journey, entry.Step)
+		case strings.TrimSpace(entry.Reason) == "":
+			return nil, fmt.Errorf("%q / %q needs a reason", entry.Journey, entry.Step)
+		case steps[key] != 1:
+			return nil, fmt.Errorf("%q / %q must name exactly one existing step", entry.Journey, entry.Step)
+		case known[key].Issue != "":
+			return nil, fmt.Errorf("%q / %q has a duplicate entry", entry.Journey, entry.Step)
+		}
+		known[key] = entry
+	}
+	return known, nil
 }
 
 // FindBrowser locates a Chromium or Chrome executable. If E2E_CHROMIUM is set,
@@ -53,8 +87,13 @@ func FindBrowser() (string, error) {
 	return "", fmt.Errorf("no Chromium or Chrome browser found; install Chromium or set E2E_CHROMIUM")
 }
 
-// RunAll executes the selected journeys and returns true if all passed.
+// RunAll executes the selected journeys and returns true if none failed unexpectedly.
 func RunAll(selected []Journey) bool {
+	known, err := knownFailures()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ CONOCIDOS: %v\n", err)
+		return false
+	}
 	browserPath, err := FindBrowser()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "✗ browser startup failed: %v\n", err)
@@ -74,38 +113,39 @@ func RunAll(selected []Journey) bool {
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), allocOpts...)
 	defer cancelAlloc()
 
-	results := make([]Result, 0, len(selected))
+	var green, knownCount int
+	var failed []string
 	for _, j := range selected {
-		res := runOne(allocCtx, j)
+		res := runOne(allocCtx, j, known)
 		mark := "✓"
-		if !res.OK {
+		switch {
+		case !res.OK:
 			mark = "✗"
+			failed = append(failed, res.ID)
+		case res.Known:
+			mark = "⚠"
+			knownCount++
+		default:
+			green++
 		}
 		fmt.Printf("%s %s — %s\n", mark, j.ID, j.What)
-		if !res.OK {
+		if !res.OK || res.Known {
 			for _, line := range res.Lines {
 				fmt.Println(line)
 			}
 		}
-		results = append(results, res)
 	}
 
-	var failed []string
-	for _, r := range results {
-		if !r.OK {
-			failed = append(failed, r.ID)
-		}
-	}
-	passed := len(results) - len(failed)
+	fmt.Printf("\n%d green, %d known", green, knownCount)
 	if len(failed) > 0 {
-		fmt.Printf("\n%d of %d journeys green; failed: %s\n", passed, len(results), strings.Join(failed, ", "))
+		fmt.Printf("; failed: %s\n", strings.Join(failed, ", "))
 		return false
 	}
-	fmt.Printf("\n%d of %d journeys green\n", passed, len(results))
+	fmt.Println()
 	return true
 }
 
-func runOne(allocCtx context.Context, j Journey) Result {
+func runOne(allocCtx context.Context, j Journey, known map[stepKey]knownFailure) Result {
 	h, err := StartHarness()
 	if err != nil {
 		return Result{ID: j.ID, OK: false, Lines: []string{fmt.Sprintf("  ✗ could not start harness: %v", err)}}
@@ -116,20 +156,45 @@ func runOne(allocCtx context.Context, j Journey) Result {
 	defer cancel()
 
 	var (
-		noiseMu sync.Mutex
-		noise   []string
+		noiseMu    sync.Mutex
+		noise      []string
+		activeStep int
 	)
+	type request struct {
+		step       int
+		path       string
+		lastStatus int64
+	}
+	requests := make(map[network.RequestID]*request)
 	baseParsed, _ := url.Parse(h.BaseURL)
+	addNoise := func(step int, message string) {
+		noise = append(noise, fmt.Sprintf("  ✗ step %d: %s", step, message))
+	}
+	recordHTTPFailure := func(req *request, status int64) {
+		if status < 400 || status == req.lastStatus {
+			return
+		}
+		req.lastStatus = status
+		if req.step > 0 && status < 500 {
+			expected := j.Steps[req.step-1].ExpectedHTTP
+			if expected != nil && expected.Path == req.path && expected.Status == status {
+				return
+			}
+		}
+		addNoise(req.step, fmt.Sprintf("HTTP %d on %s", status, req.path))
+	}
+
 	if err := chromedp.Listen(ctx, func(ev any) {
+		noiseMu.Lock()
+		defer noiseMu.Unlock()
+
 		switch e := ev.(type) {
 		case *runtime.EventExceptionThrown:
 			msg := e.ExceptionDetails.Text
 			if e.ExceptionDetails.Exception != nil && e.ExceptionDetails.Exception.Description != "" {
 				msg = e.ExceptionDetails.Exception.Description
 			}
-			noiseMu.Lock()
-			noise = append(noise, fmt.Sprintf("JavaScript error: %s", firstLine(msg)))
-			noiseMu.Unlock()
+			addNoise(activeStep, fmt.Sprintf("JavaScript error: %s", firstLine(msg)))
 		case *runtime.EventConsoleAPICalled:
 			if e.Type == runtime.ConsoleAPICalledTypeError {
 				var parts []string
@@ -140,20 +205,42 @@ func runOne(allocCtx context.Context, j Journey) Result {
 						parts = append(parts, arg.Description)
 					}
 				}
-				txt := strings.Join(parts, " ")
-				if !strings.Contains(txt, "Failed to load resource") {
-					noiseMu.Lock()
-					noise = append(noise, fmt.Sprintf("console.error: %s", txt))
-					noiseMu.Unlock()
+				addNoise(activeStep, "console.error: "+strings.Join(parts, " "))
+			}
+		case *network.EventRequestWillBeSent:
+			if e.Request != nil {
+				if u, err := url.Parse(e.Request.URL); err == nil && sameOrigin(u, baseParsed) {
+					// Redirects reuse the request ID. Keep the initiating step even
+					// when the response arrives during a later action.
+					req := requests[e.RequestID]
+					if req == nil {
+						req = &request{step: activeStep}
+						requests[e.RequestID] = req
+					}
+					req.path = u.EscapedPath()
 				}
 			}
 		case *network.EventResponseReceived:
-			if e.Response != nil && e.Response.Status >= 500 {
-				if u, err := url.Parse(e.Response.URL); err == nil && baseParsed != nil && u.Host == baseParsed.Host {
-					noiseMu.Lock()
-					noise = append(noise, fmt.Sprintf("%d on %s", e.Response.Status, u.Path))
-					noiseMu.Unlock()
+			if e.Response != nil && e.Response.Status >= 400 {
+				if u, err := url.Parse(e.Response.URL); err == nil && sameOrigin(u, baseParsed) {
+					req := requests[e.RequestID]
+					if req == nil {
+						req = &request{path: u.EscapedPath()}
+						requests[e.RequestID] = req
+					}
+					recordHTTPFailure(req, e.Response.Status)
 				}
+			}
+		case *network.EventResponseReceivedExtraInfo:
+			// Chrome can abort a stylesheet or image load after receiving
+			// HTTP headers without emitting ResponseReceived.
+			if req := requests[e.RequestID]; req != nil {
+				recordHTTPFailure(req, e.StatusCode)
+			}
+		case *network.EventLoadingFailed:
+			// Navigation may cancel in-flight resources from the previous page.
+			if req, ok := requests[e.RequestID]; ok && !e.Canceled {
+				addNoise(req.step, fmt.Sprintf("resource load failed on %s: %s", req.path, e.ErrorText))
 			}
 		case *fetch.EventRequestPaused:
 			reqID := e.RequestID
@@ -163,9 +250,7 @@ func runOne(allocCtx context.Context, j Journey) Result {
 			}
 			allowed := isAllowedOrigin(rawURL, baseParsed)
 			if !allowed {
-				noiseMu.Lock()
-				noise = append(noise, fmt.Sprintf("blocked external request: %s", rawURL))
-				noiseMu.Unlock()
+				addNoise(activeStep, "blocked external request: "+rawURL)
 			}
 			go func() {
 				if allowed {
@@ -217,15 +302,14 @@ func runOne(allocCtx context.Context, j Journey) Result {
 	}
 
 	var (
-		lines     []string
-		broken    bool
-		brokenErr error
+		lines    []string
+		broken   bool
+		hasKnown bool
 	)
 
 	if err := Navigate(ctx, h, j.Start); err != nil {
 		broken = true
-		brokenErr = err
-		lines = append(lines, fmt.Sprintf("  ✗ 0. Open %s", j.Start))
+		lines = append(lines, fmt.Sprintf("  ✗ 0. Open %s", j.Start), "     "+err.Error())
 	}
 
 	for i, step := range j.Steps {
@@ -233,26 +317,35 @@ func runOne(allocCtx context.Context, j Journey) Result {
 			lines = append(lines, fmt.Sprintf("  · %d. %s (not reached)", i+1, step.What))
 			continue
 		}
-		if err := step.Do(ctx, h); err != nil {
+		noiseMu.Lock()
+		activeStep = i + 1
+		noiseMu.Unlock()
+
+		err := step.Do(ctx, h)
+		entry, listed := known[stepKey{j.ID, step.What}]
+		switch {
+		case listed && err != nil:
+			hasKnown = true
+			lines = append(lines, fmt.Sprintf("  ⚠ %d. %s", i+1, step.What),
+				fmt.Sprintf("     ⚠ known: %s (%s)", entry.Reason, entry.Issue), "     "+err.Error())
+		case listed:
 			broken = true
-			brokenErr = err
-			lines = append(lines, fmt.Sprintf("  ✗ %d. %s", i+1, step.What))
-		} else {
+			lines = append(lines, fmt.Sprintf("  ✗ %d. %s", i+1, step.What),
+				"     no longer fails: remove it from CONOCIDOS")
+		case err != nil:
+			broken = true
+			lines = append(lines, fmt.Sprintf("  ✗ %d. %s", i+1, step.What), "     "+err.Error())
+		default:
 			lines = append(lines, fmt.Sprintf("  ✓ %d. %s", i+1, step.What))
 		}
 	}
 
 	noiseMu.Lock()
-	collectedNoise := append([]string(nil), noise...)
+	lines = append(lines, noise...)
+	hasNoise := len(noise) > 0
 	noiseMu.Unlock()
 
-	if broken || len(collectedNoise) > 0 {
-		if brokenErr != nil {
-			lines = append(lines, fmt.Sprintf("     %s", brokenErr.Error()))
-		}
-		for _, n := range collectedNoise {
-			lines = append(lines, fmt.Sprintf("     %s", n))
-		}
+	if broken || hasNoise {
 		if shot, err := chromedp.Run(ctx, chromedp.FullScreenshot(100)); err == nil {
 			if err := os.MkdirAll(outputDir, 0o755); err == nil {
 				shotPath := filepath.Join(outputDir, j.ID+".png")
@@ -266,7 +359,7 @@ func runOne(allocCtx context.Context, j Journey) Result {
 		return Result{ID: j.ID, OK: false, Lines: lines}
 	}
 
-	return Result{ID: j.ID, OK: true, Lines: lines}
+	return Result{ID: j.ID, OK: true, Known: hasKnown, Lines: lines}
 }
 
 func isAllowedOrigin(rawURL string, base *url.URL) bool {
@@ -278,6 +371,10 @@ func isAllowedOrigin(rawURL string, base *url.URL) bool {
 	case "data", "blob", "about":
 		return true
 	}
+	return sameOrigin(u, base)
+}
+
+func sameOrigin(u, base *url.URL) bool {
 	return base != nil && u.Scheme == base.Scheme && u.Host == base.Host
 }
 

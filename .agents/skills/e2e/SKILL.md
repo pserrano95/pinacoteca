@@ -34,22 +34,34 @@ drawings and a session cookie in SQLite.
 
 ## How to read the output
 
-- Exits with **0** and `N of N journeys green`: everything passed.
+- Exits with **0** and `N green, M known` if no unexpected failures occurred.
+  A known assertion failure is marked `⚠` and its journey continues.
+  A known assertion that passes fails the run and must be removed from
+  `CONOCIDOS`.
 - Exits with **1**: prints the journey, the **step** that failed and why, and
   saves a full-page screenshot in `e2e/output/<id>.png`. **Open the
   screenshot** before touching anything: it almost always shows what happened.
-- Besides its steps, every journey requires: no uncaught JavaScript errors, no
-  `console.error` from the app, and no `5xx` responses. If any of those
-  occur, the steps may all be green and the journey is still red.
+- Besides its steps, every journey requires: no uncaught JavaScript errors,
+  no `console.error` from the app, no same-origin HTTP errors, no unexpected
+  resource load failures and no external requests. Declare deliberate HTTP
+  4xx responses by path and status in the step that expects them. Browser
+  noise still fails the run in a step listed in `CONOCIDOS`.
 - Failing to start the browser or the harness is **red**: not having looked
   is not passing. Never report it as green in the PR.
 
 ## What to do with a red
 
 1. Read the failing step and open the screenshot in `e2e/output/<id>.png`.
-2. Fix **the application**. Re-run that journey, and at the end run all of them.
+2. Fix **the application** if your change caused the failure. Re-run that
+   journey, and at the end run all of them.
 3. If it is still red on the third attempt, stop and report it in the PR with
    the pasted output: do not keep guessing.
+
+If a journey exposes a real failure unrelated to the assignment, report it in
+the PR under **Repository surprises** with the screenshot and a proposed
+`CONOCIDOS` entry naming the journey, exact step, reason and repository issue.
+Leave the application and the list untouched. Only a session with the
+repository owner or PR review may add an entry.
 
 What you **never** do to turn it green: raise `Patience`, add fixed sleeps,
 retry until it passes, drop a step, or remove a journey. A flaky journey has
@@ -86,5 +98,5 @@ judged: explain it in the PR and it is reviewed by the repository owner.
 
 ## In the PR
 
-Paste the output (`N of N journeys green`) alongside the output of `make
+Paste the output (`N green, M known`) alongside the output of `make
 verify`. If it was not run, state: `e2e: not run, because ...`.

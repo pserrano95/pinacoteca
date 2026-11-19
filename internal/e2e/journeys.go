@@ -5,6 +5,17 @@ import (
 	"fmt"
 )
 
+type knownFailure struct {
+	Journey string
+	Step    string
+	Reason  string
+	Issue   string
+}
+
+// CONOCIDOS lists assertion failures reviewed by the repository owner.
+// Step is the exact Step.What label within Journey.
+var CONOCIDOS = []knownFailure{}
+
 type screenSpec struct {
 	name  string
 	path  func(h *Harness) string
@@ -30,12 +41,14 @@ var screens = []screenSpec{
 }
 
 func screenSteps(prefix string, maxWidth int) []Step {
+	missingScreen := HTTPFailure{Path: "/this-screen-does-not-exist", Status: 404}
 	steps := make([]Step, 0, len(screens)+2)
 	steps = append(steps, Step{
 		What: fmt.Sprintf("%sOpen a route that does not exist and get 404 (not 200)", prefix),
 		Do: func(ctx context.Context, h *Harness) error {
-			return ExpectStatus(ctx, h, "/this-screen-does-not-exist", 404)
+			return ExpectStatus(ctx, h, missingScreen.Path, int(missingScreen.Status))
 		},
+		ExpectedHTTP: &missingScreen,
 	})
 	for _, sc := range screens {
 		sc := sc
